@@ -1,0 +1,3568 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Drucker Dashboard RP2350</title>
+<style>
+  :root{
+    --bg:#0a0c0f;
+    --panel:#12151a;
+    --panel-2:#171b21;
+    --border:#242a33;
+    --text:#e5e8ec;
+    --text-dim:#8891a0;
+    --accent:#ff9142;
+    --accent-2:#3ddc97;
+    --danger:#ff5d5d;
+    --info:#4aa3ff; /* v2.2.2: AMS-Luftfeuchtigkeit (Sparkline + Massstab) */
+    --mono: 'JetBrains Mono', 'Consolas', 'SFMono-Regular', monospace;
+    --sans: 'Inter', 'Segoe UI', system-ui, sans-serif;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0; background:var(--bg); color:var(--text);
+    font-family:var(--sans); letter-spacing:0.1px;
+  }
+  header{
+    display:flex; align-items:center; justify-content:space-between;
+    padding:22px 32px; border-bottom:1px solid var(--border);
+    background:linear-gradient(180deg,#0d1014,#0a0c0f);
+  }
+  header h1{
+    font-size:18px; font-weight:600; margin:0; letter-spacing:0.5px;
+    text-transform:uppercase; color:var(--text);
+  }
+  header h1 span{ color:var(--accent); }
+  .btn{
+    background:var(--accent); color:#12100c; border:none; border-radius:6px;
+    padding:10px 18px; font-weight:600; font-size:13px; cursor:pointer;
+    letter-spacing:0.3px; transition:filter .15s ease;
+  }
+  .btn:hover{ filter:brightness(1.1); }
+  .btn-ghost{
+    background:transparent; color:var(--text-dim); border:1px solid var(--border);
+  }
+  .btn-ghost:hover{ color:var(--text); border-color:#3a4250; }
+  .btn-mini{
+    background:#1b2027; color:var(--text); border:1px solid var(--border);
+    border-radius:5px; padding:5px 10px; font-size:11px; cursor:pointer;
+    font-family:var(--mono);
+  }
+  .btn-mini:hover{ border-color:var(--accent-2); }
+  .btn-mini.off:hover{ border-color:var(--danger); }
+  /* v2.1.0: alle echten "Loeschen"-Schaltflaechen (Verlauf/Warteschlange)
+     durchgehend rot, nicht erst bei Hover - analog zu .del-icon. Bewusst
+     eine EIGENE Klasse statt .btn-mini.off: .off wird bereits fuer den
+     "Aus"-Knopf eines Sensoren/Schalter-Eintrags verwendet (siehe
+     renderExtras()) - der soll NICHT rot werden, das waere fachlich
+     falsch (Ausschalten ist keine destruktive Loesch-Aktion). */
+  .btn-mini.btn-delete{ color:var(--danger); border-color:#c0392b66; }
+  .btn-mini.btn-delete:hover{ border-color:var(--danger); filter:brightness(1.15); }
+  /* MK6: main = #printerList - Karten-Layout wahlweise 1/2/3/4-spaltig
+     (4 seit v2.4.0), siehe .cols-2/.cols-3/.cols-4 (per JS umgeschaltet,
+     Wahl lokal gespeichert). */
+  main{
+    padding:28px 32px; max-width:1100px; margin:0 auto;
+    display:grid; grid-template-columns:1fr; gap:22px; align-items:start;
+  }
+  main.cols-2{ max-width:1600px; grid-template-columns:repeat(2, 1fr); }
+  main.cols-3{ max-width:2000px; grid-template-columns:repeat(3, 1fr); }
+  main.cols-4{ max-width:2400px; grid-template-columns:repeat(4, 1fr); }
+  @media(max-width:1500px){
+    main.cols-4{ grid-template-columns:repeat(3, 1fr); max-width:2000px; }
+  }
+  @media(max-width:1150px){
+    main.cols-3, main.cols-4{ grid-template-columns:repeat(2, 1fr); max-width:1600px; }
+  }
+  @media(max-width:760px){
+    main.cols-2, main.cols-3, main.cols-4{ grid-template-columns:1fr; max-width:1100px; }
+  }
+  .layout-switch{
+    display:flex; border:1px solid var(--border); border-radius:6px; overflow:hidden;
+  }
+  .layout-btn{
+    background:#1b2027; color:var(--text-dim); border:none; border-right:1px solid var(--border);
+    padding:9px 13px; font-size:12px; font-family:var(--mono); cursor:pointer;
+  }
+  .layout-btn:last-child{ border-right:none; }
+  .layout-btn:hover{ color:var(--text); }
+  .layout-btn.active{ background:var(--accent); color:#12100c; font-weight:600; }
+  .printer-card{
+    background:var(--panel); border:1px solid var(--border); border-radius:10px;
+    overflow:hidden; container-type:inline-size;
+  }
+  .card-head{
+    display:flex; align-items:center; justify-content:space-between;
+    padding:16px 20px; border-bottom:1px solid var(--border);
+    background:var(--panel-2);
+  }
+  .card-head .name{ font-size:15px; font-weight:600; }
+  .card-head .ip{ font-family:var(--mono); font-size:12px; color:var(--text-dim); margin-left:10px;}
+  .type-badge{
+    font-family:var(--mono); font-size:10px; padding:2px 8px; border-radius:20px;
+    border:1px solid var(--border); color:var(--text-dim); text-transform:uppercase; margin-left:10px;
+  }
+  .status-dot{
+    width:9px; height:9px; border-radius:50%; display:inline-block; margin-right:8px;
+    background:var(--danger);
+  }
+  .status-dot.online{ background:var(--accent-2); box-shadow:0 0 6px var(--accent-2); }
+  .head-right{ display:flex; align-items:center; gap:14px; }
+  .cam-icon{
+    cursor:pointer; width:30px; height:30px; border-radius:6px;
+    display:flex; align-items:center; justify-content:center;
+    border:1px solid var(--border); background:#1b2027;
+  }
+  .cam-icon:hover{ border-color:var(--accent); }
+  .cam-icon svg{ width:16px; height:16px; fill:var(--text-dim); }
+  .cam-icon:hover svg{ fill:var(--accent); }
+  .hist-icon{
+    cursor:pointer; width:30px; height:30px; border-radius:6px;
+    display:flex; align-items:center; justify-content:center;
+    border:1px solid var(--border); background:#1b2027;
+  }
+  .hist-icon:hover{ border-color:var(--accent-2); }
+  .hist-icon svg{ width:16px; height:16px; fill:var(--text-dim); }
+  .hist-icon:hover svg{ fill:var(--accent-2); }
+  /* v2.1.0: Loesch-Icon/-Buttons durchgehend rot hinterlegt (nicht erst
+     bei Hover), damit eine destruktive Aktion sofort erkennbar ist. */
+  .del-icon{ cursor:pointer; color:var(--danger); font-size:18px; padding:0 4px;}
+  .del-icon:hover{ filter:brightness(1.25); }
+
+  .card-body{ padding:20px; display:grid; grid-template-columns:1.3fr 1fr; gap:24px; }
+  .card-body.single-col{ grid-template-columns:1fr; }
+  @media(max-width:760px){ .card-body{ grid-template-columns:1fr; } }
+  /* Faellt zusaetzlich auf einspaltig zurueck, wenn die KARTE SELBST schmal
+     ist (z. B. im 3-Spalten-Layout auf einem normal breiten Monitor) - nicht
+     nur wenn das ganze Browserfenster schmal ist. Browser ohne Container-
+     Query-Unterstuetzung ignorieren das einfach und nutzen weiterhin nur die
+     media-query-Regel oben (rein additiv, kein Fallback-Risiko). */
+  @container (max-width:560px){ .card-body{ grid-template-columns:1fr; } }
+
+  .field-label{ font-size:11px; text-transform:uppercase; letter-spacing:0.6px; color:var(--text-dim); margin-bottom:6px; }
+  .file-name{ font-family:var(--mono); font-size:13px; margin-bottom:14px; word-break:break-all; }
+  .error-hint{
+    font-family:var(--mono); font-size:11.5px; color:var(--danger);
+    background:#2a1414; border:1px solid #4a1f1f; border-radius:6px;
+    padding:8px 10px; margin-top:4px;
+  }
+
+  .progress-row{ display:flex; align-items:center; gap:12px; margin-bottom:16px; }
+  /* v2.2.0: Vorschaubild des aktuellen/zuletzt gestarteten Druckauftrags
+     neben dem Fortschrittsbalken (siehe progressThumb()) - dieselbe
+     Bildquelle wie im Verlaufs-Fenster, daher dieselbe Bildproportion
+     (object-fit:cover, quadratisch zugeschnitten). */
+  .progress-thumb{
+    width:40px; height:40px; border-radius:6px; object-fit:cover;
+    border:1px solid var(--border); flex-shrink:0; background:#1b2027;
+  }
+  .progress-track{
+    flex:1; height:10px; border-radius:5px; background:#20252c; overflow:hidden;
+    border:1px solid var(--border);
+  }
+  .progress-fill{
+    height:100%; background:linear-gradient(90deg,var(--accent-2),#2bb987);
+    width:0%; transition:width .4s ease;
+  }
+  .progress-pct{ font-family:var(--mono); font-size:14px; min-width:46px; text-align:right;}
+
+  .temps{ display:flex; gap:18px; margin-top:6px; flex-wrap:wrap; }
+  .temp-chip{
+    background:#1b2027; border:1px solid var(--border); border-radius:6px;
+    padding:8px 12px; font-family:var(--mono); font-size:12.5px; color:var(--text-dim);
+    display:flex; align-items:center; gap:8px;
+  }
+  .temp-chip b{ color:var(--text); font-size:13px; }
+  /* v2.2.0: kleines Verlaufsdiagramm (Sparkline) je Temperaturanzeige -
+     rein client-seitig aus den letzten Status-Umfragen aufgebaut (siehe
+     tempHistory/sparklineSvg() im Skript), kein Backend-Speicher noetig.
+     "currentColor" (siehe SVG-<polyline> in sparklineSvg()) uebernimmt
+     diese Farbe. v2.2.1: auf ausdruecklichen Wunsch des Nutzers als rote
+     Linie dargestellt (vorher gedimmte Chip-Textfarbe). v2.2.2: die AMS-
+     Luftfeuchtigkeit (humidityChip()) nutzt jetzt eine EIGENE Klasse
+     (.humidity-spark, blau) statt .temp-spark, um sie optisch von den
+     Temperatur-Sparklines zu unterscheiden - siehe dort. */
+  .temp-spark{ color:var(--danger); flex-shrink:0; opacity:0.9; }
+  .humidity-spark{ color:var(--info); flex-shrink:0; opacity:0.9; }
+
+  /* v2.2.2: kleiner 1-5-Massstab neben dem Feuchte-Rohwert (siehe
+     humidityScale()) - gefuellte Punkte bis einschliesslich der
+     aktuellen Stufe, damit die Zahl ohne Nachschlagen eingeordnet werden
+     kann. v2.2.3 - NUTZER-FEEDBACK: einheitliches Blau liess nicht
+     erkennen, ob ein Wert gut oder schlecht ist - die Punkte werden
+     jetzt zusaetzlich in Ampelfarbe eingefaerbt (gruen/gelb/rot je nach
+     Stufe, siehe HUMIDITY_LEVELS im Skript), die Sparkline-Linie selbst
+     bleibt bewusst blau (siehe .humidity-spark oben). */
+  .humidity-scale{ display:inline-flex; align-items:center; gap:2px; flex-shrink:0; }
+  .humidity-dot{
+    width:6px; height:6px; border-radius:50%; background:#232a33;
+    border:1px solid var(--border); display:inline-block;
+  }
+  .humidity-dot.filled.good{ background:var(--accent-2); border-color:var(--accent-2); }
+  .humidity-dot.filled.mid{ background:#e8b23d; border-color:#e8b23d; }
+  .humidity-dot.filled.bad{ background:var(--danger); border-color:var(--danger); }
+  /* v2.2.3: Wort-Label ("trocken"/"feucht"/...) neben dem Zahlenwert,
+     siehe humidityLabel() - dieselbe Ampelfarbe wie der Massstab. */
+  .humidity-label{ font-family:var(--sans); font-size:11px; font-weight:600; }
+  .humidity-label.good{ color:var(--accent-2); }
+  .humidity-label.mid{ color:#e8b23d; }
+  .humidity-label.bad{ color:var(--danger); }
+
+  .ams-title{ font-size:11px; text-transform:uppercase; letter-spacing:0.6px; color:var(--text-dim); margin-bottom:10px;}
+  .ams-slot{ display:flex; align-items:center; gap:10px; margin-bottom:9px; }
+  /* v2.2.1: Luftfeuchtigkeit je AMS-Einheit, unterhalb der Fach-Liste */
+  .ams-humidity-row{ margin-top:4px; }
+  .ams-swatch{ width:14px; height:14px; border-radius:3px; border:1px solid #000a; flex-shrink:0;}
+  .ams-meta{ font-family:var(--mono); font-size:11.5px; color:var(--text-dim); width:110px; flex-shrink:0;}
+  .ams-track{ flex:1; height:8px; border-radius:4px; background:#20252c; overflow:hidden; border:1px solid var(--border);}
+  .ams-fill{ height:100%; }
+  .ams-remain{ font-family:var(--mono); font-size:11.5px; width:36px; text-align:right; color:var(--text-dim);}
+  .empty-ams{ font-size:12px; color:var(--text-dim); font-style:italic; }
+
+  .drop-zone{
+    margin-top:16px; border:1px dashed var(--border); border-radius:8px;
+    padding:14px; text-align:center; font-size:12px; color:var(--text-dim);
+    transition:border-color .15s ease, background .15s ease;
+  }
+  .drop-zone.dragover{ border-color:var(--accent-2); background:#132018; color:var(--text); }
+  .drop-zone.uploading{ border-color:var(--accent); color:var(--text); }
+  .drop-zone.dz-disabled{
+    cursor:default; border-style:solid; background:#1b2027;
+  }
+  .drop-zone.dz-disabled .btn-mini{ margin-top:6px; }
+  .drop-zone .dz-hint{ font-size:10.5px; margin-top:4px; color:var(--text-dim); }
+  .drop-zone .dz-status{
+    font-family:var(--mono); font-size:11.5px; margin-top:8px;
+  }
+  .drop-zone .dz-status.err{ color:var(--danger); }
+  .drop-zone .dz-status.ok{ color:var(--accent-2); }
+
+  .ver-badge{
+    font-family:var(--mono); font-size:11px; color:var(--text-dim);
+    font-weight:400; vertical-align:middle; margin-left:4px;
+  }
+
+  .ams-modal{ width:480px; }
+  .mqtt-modal{ width:560px; }
+  .mqtt-extra-row{
+    display:flex; align-items:center; justify-content:space-between; gap:10px;
+    padding:8px 0; border-bottom:1px solid var(--border);
+  }
+  .mqtt-extra-row:last-child{ border-bottom:none; }
+  .mqtt-extra-row .mqtt-extra-info{ font-size:12px; }
+  .mqtt-extra-row .mqtt-extra-info .mqtt-extra-sub{ color:var(--text-dim); font-size:11px; margin-top:2px; }
+  .mqtt-discovered-row{
+    display:flex; justify-content:space-between; gap:10px; padding:4px 0;
+    cursor:pointer; font-family:var(--mono); font-size:11px;
+  }
+  .mqtt-discovered-row:hover{ color:var(--accent); }
+  .mqtt-discovered-list{ max-height:160px; overflow-y:auto; }
+  .ams-row{
+    display:flex; align-items:flex-start; gap:12px; padding:12px 0;
+    border-bottom:1px solid var(--border);
+  }
+  .ams-row:last-child{ border-bottom:none; }
+  .ams-row-body{ flex:1; min-width:0; }
+  .ams-row-label{ font-size:13px; font-weight:600; margin-bottom:8px; }
+  .ams-row-type{ font-family:var(--mono); font-size:11px; font-weight:400; color:var(--text-dim); }
+  .ams-swatch{ margin-top:3px; }
+  .ams-radio{
+    display:flex; align-items:center; gap:8px; font-size:12.5px; color:var(--text-dim);
+    padding:5px 0; cursor:pointer;
+  }
+  .ams-radio input[type="radio"]{ width:auto; margin:0; flex-shrink:0; accent-color:var(--accent-2); }
+  .ams-radio b{ color:var(--text); font-weight:600; }
+  .ams-row-select{
+    background:#0d1014; border:1px solid var(--border); color:var(--text);
+    padding:5px 7px; border-radius:6px; font-family:var(--mono); font-size:11.5px;
+    margin-left:4px;
+  }
+  .ams-row-select:disabled{ opacity:0.4; cursor:not-allowed; }
+
+  .ams-progress-wrap{ margin-top:16px; }
+  .ams-progress-track{
+    height:8px; background:#0d1014; border:1px solid var(--border);
+    border-radius:5px; overflow:hidden;
+  }
+  .ams-progress-bar{
+    height:100%; background:var(--accent-2); width:0%;
+    transition:width .25s ease;
+  }
+  .ams-progress-label{
+    font-family:var(--mono); font-size:11.5px; color:var(--text-dim);
+    margin-top:6px;
+  }
+
+  .toast-container{
+    position:fixed; top:18px; right:18px; z-index:80;
+    display:flex; flex-direction:column; gap:10px; max-width:340px;
+  }
+  .toast{
+    background:var(--panel); border:1px solid var(--border); border-radius:8px;
+    padding:12px 14px; font-size:13px; box-shadow:0 6px 18px rgba(0,0,0,.45);
+  }
+  .toast.ok{ border-color:#2bb98755; color:var(--accent-2); }
+  .toast.err{ border-color:#c0392b55; color:var(--danger); }
+
+  .state-badge{
+    font-family:var(--mono); font-size:11px; padding:3px 9px; border-radius:20px;
+    border:1px solid var(--border); color:var(--text-dim); text-transform:uppercase;
+  }
+  .state-badge.running{ color:var(--accent-2); border-color:#2bb98755; }
+  .state-badge.paused{ color:var(--accent); border-color:#ff914255; }
+
+  .empty-state{
+    text-align:center; padding:70px 20px; color:var(--text-dim);
+  }
+  .empty-state .btn{ margin-top:16px; }
+
+  .extras-section{ margin-top:18px; padding-top:14px; border-top:1px solid var(--border); }
+  .extras-row{ display:flex; flex-wrap:wrap; gap:10px; }
+  .extra-sensor{
+    background:#1b2027; border:1px solid var(--border); border-radius:6px;
+    padding:7px 11px; font-family:var(--mono); font-size:12px; color:var(--text-dim);
+    display:flex; gap:8px; align-items:center;
+  }
+  .extra-sensor b{ color:var(--text); }
+  .extra-switch{
+    background:#1b2027; border:1px solid var(--border); border-radius:6px;
+    padding:6px 10px; display:flex; gap:8px; align-items:center; font-size:12px;
+  }
+
+  /* Modal */
+  .modal-backdrop{
+    display:none; position:fixed; inset:0; background:rgba(0,0,0,.6);
+    align-items:center; justify-content:center; z-index:50;
+  }
+  .modal-backdrop.show{ display:flex; }
+  .modal{
+    background:var(--panel); border:1px solid var(--border); border-radius:10px;
+    width:400px; padding:24px; max-height:85vh; overflow-y:auto;
+  }
+  .modal h2{ font-size:15px; margin:0 0 18px 0; text-transform:uppercase; letter-spacing:0.5px;}
+  .modal label{ font-size:11px; color:var(--text-dim); text-transform:uppercase; letter-spacing:0.5px;}
+  .modal input, .modal select{
+    width:100%; background:#0d1014; border:1px solid var(--border); color:var(--text);
+    padding:9px 10px; border-radius:6px; margin:6px 0 14px 0; font-family:var(--mono); font-size:13px;
+  }
+  .modal input:focus, .modal select:focus{ outline:none; border-color:var(--accent); }
+  .checkbox-row{ display:flex; align-items:center; gap:8px; margin:6px 0 14px 0; }
+  .checkbox-row input{ width:auto; margin:0; }
+  .modal-actions{ display:flex; justify-content:flex-end; gap:10px; margin-top:6px;}
+  .error-msg{ color:var(--danger); font-size:12px; margin-bottom:10px; display:none;}
+  .hint-text{ font-size:11px; color:var(--text-dim); margin:-8px 0 14px 0; line-height:1.4;}
+
+  /* v2.3.0: Einstellungen-Modus - eigener Bereich statt main-Grid, siehe
+     enterSettingsMode()/exitSettingsMode() sowie Markup direkt nach
+     <main id="printerList">. */
+  #settingsPanel{ padding:28px 32px; max-width:900px; margin:0 auto; }
+  .settings-section{
+    background:var(--panel); border:1px solid var(--border); border-radius:10px;
+    padding:20px 24px; margin-bottom:22px;
+  }
+  .settings-section h2{
+    font-size:14px; margin:0 0 10px 0; text-transform:uppercase; letter-spacing:0.5px;
+  }
+  .settings-section label{
+    font-size:11px; color:var(--text-dim); text-transform:uppercase; letter-spacing:0.5px;
+    display:block; margin-bottom:6px;
+  }
+  .settings-section input, .settings-section select{
+    background:#0d1014; border:1px solid var(--border); color:var(--text);
+    padding:9px 10px; border-radius:6px; font-family:var(--mono); font-size:13px;
+  }
+  .settings-section input:focus, .settings-section select:focus{ outline:none; border-color:var(--accent); }
+  .settings-inline-form{ display:flex; flex-wrap:wrap; gap:10px; align-items:center; }
+  .settings-inline-form input{ flex:1; min-width:180px; }
+  .manage-row{
+    display:flex; align-items:center; justify-content:space-between; gap:10px;
+    padding:10px 0; border-bottom:1px solid var(--border);
+  }
+  .manage-row:last-child{ border-bottom:none; }
+  .manage-row .manage-info{ font-size:13px; flex:1; min-width:0; }
+  .manage-row .manage-info .manage-sub{
+    color:var(--text-dim); font-size:11px; font-family:var(--mono); margin-top:2px;
+    word-break:break-all;
+  }
+  .manage-row .manage-actions{ display:flex; align-items:center; gap:6px; flex-shrink:0; }
+  .manage-row select{ max-width:160px; }
+  /* v2.3.0: Raum-Ueberschrift innerhalb des #printerList-Grids - main ist
+     selbst ein CSS-Grid (siehe main{display:grid;...} oben), daher
+     "grid-column:1/-1" fuer die volle Breite UND "display:contents" auf
+     dem Wrapper der zugehoerigen Druckerkarten (.room-group), damit diese
+     Karten weiterhin direkt als Grid-Elemente von main behandelt werden
+     (nicht als ein einzelnes grosses Element). */
+  .room-header{
+    grid-column:1/-1; font-family:var(--mono); font-size:12px; letter-spacing:1px;
+    text-transform:uppercase; color:var(--text-dim); padding-bottom:8px;
+    border-bottom:1px solid var(--border); margin-top:6px;
+  }
+  main .room-header:first-child{ margin-top:0; }
+  .room-group{ display:contents; }
+  /* v2.4.0: Kachel fuer eine externe RTSP-Kamera - bewusst schlanker als
+     .printer-card (keine Druckfunktionen), reiht sich aber als normales
+     Grid-Element genauso in main/.room-group ein. */
+  .camera-card{
+    background:var(--panel); border:1px solid var(--border); border-radius:10px;
+    padding:16px 20px; display:flex; align-items:center; justify-content:space-between; gap:14px;
+  }
+  .camera-card .name{ font-size:15px; font-weight:600; }
+
+  .cam-modal .modal{ width:auto; padding:0; overflow:hidden; }
+  .cam-modal img{ display:block; max-width:90vw; max-height:80vh; background:#000; }
+  .cam-modal .cam-close{
+    position:absolute; top:14px; right:20px; color:#fff; font-size:26px; cursor:pointer; z-index:60;
+  }
+
+  /* MK6: Druckauftrags-Verlauf */
+  /* v2.2.4: eigenes Scroll-Verhalten fuer Verlaufs-/Warteschlangen-Modal -
+     Kopfbereich (Ueberschrift, Aktions-Knoepfe, Werkzeuge/Drop-Zone)
+     bleibt fest sichtbar, NUR die Liste selbst (.history-modal-scroll)
+     scrollt bei vielen Eintraegen. Vorher scrollte das gesamte .modal
+     als ein Block (siehe .modal{overflow-y:auto}), wodurch "Schliessen"/
+     "Druckraum leer" am Fuss einer langen Liste nur nach vollstaendigem
+     Durchscrollen erreichbar war. */
+  .history-modal{
+    width:460px; display:flex; flex-direction:column; overflow:hidden;
+  }
+  .history-modal .modal-actions-top{ flex-shrink:0; margin-top:0; margin-bottom:14px; }
+  .history-modal .history-modal-tools{ flex-shrink:0; }
+  .history-modal .hint-text{ flex-shrink:0; margin:0 0 10px 0; }
+  .history-modal .queue-drop-zone{ flex-shrink:0; }
+  .history-modal-scroll{ overflow-y:auto; min-height:0; }
+  .history-empty{ font-size:12px; color:var(--text-dim); font-style:italic; padding:10px 0; }
+  .history-item{
+    display:flex; gap:12px; align-items:center; padding:12px 0;
+    border-bottom:1px solid var(--border);
+  }
+  .history-item:last-child{ border-bottom:none; }
+  .history-thumb{
+    width:56px; height:56px; border-radius:6px; object-fit:cover; flex-shrink:0;
+    background:#0d1014; border:1px solid var(--border);
+  }
+  .history-thumb-placeholder{
+    width:56px; height:56px; border-radius:6px; flex-shrink:0;
+    background:#0d1014; border:1px solid var(--border);
+    display:flex; align-items:center; justify-content:center;
+  }
+  .history-thumb-placeholder svg{ width:22px; height:22px; fill:var(--text-dim); }
+  .history-body{ flex:1; min-width:0; }
+  .history-filename{
+    font-family:var(--mono); font-size:12.5px; word-break:break-all; margin-bottom:3px;
+  }
+  .history-date{ font-family:var(--mono); font-size:11px; color:var(--text-dim); }
+  .history-actions{ display:flex; flex-direction:column; gap:6px; flex-shrink:0; }
+
+  /* MK6 v1.2.0: Warteschlange je Drucker */
+  .queue-icon{
+    position:relative; cursor:pointer; width:30px; height:30px; border-radius:6px;
+    display:flex; align-items:center; justify-content:center;
+    border:1px solid var(--border); background:#1b2027;
+  }
+  .queue-icon:hover{ border-color:var(--accent); }
+  .queue-icon svg{ width:16px; height:16px; fill:var(--text-dim); }
+  .queue-icon:hover svg{ fill:var(--accent); }
+  .queue-badge{
+    position:absolute; top:-6px; right:-6px; min-width:16px; height:16px; padding:0 4px;
+    border-radius:8px; background:var(--accent); color:#12100c; font-size:10px;
+    font-weight:700; font-family:var(--mono); display:flex; align-items:center; justify-content:center;
+  }
+  .history-modal-tools{
+    display:flex; justify-content:flex-end; margin:0 0 10px 0; gap:8px;
+  }
+  .queue-item{ align-items:center; }
+  .queue-order-btns{ display:flex; flex-direction:column; gap:2px; flex-shrink:0; }
+  .queue-order-btns .btn-mini{ padding:2px 7px; line-height:1; }
+  .file-btn{ display:inline-block; }
+  /* v2.1.0: Drop-Zone oben im Warteschlangen-Modal (Drag & Drop-Upload,
+     analog zur Drop-Zone auf der Drucker-Kachel selbst) */
+  .queue-drop-zone{ margin-top:0; margin-bottom:14px; }
+  .queue-drop-zone .file-btn{ margin-top:4px; }
+
+  .cam-modal video{ display:block; max-width:90vw; max-height:80vh; min-width:320px; background:#000; }
+  .toast{ white-space:pre-line; }
+  .log-box{
+    background:#0d1014; border:1px solid var(--border); border-radius:6px; padding:10px;
+    font-family:var(--mono); font-size:11px; color:var(--text-dim); max-height:360px; overflow:auto;
+    white-space:pre-wrap; word-break:break-all; margin-top:12px;
+  }
+  .settings-section label.file-btn{ display:inline-block; text-transform:none; letter-spacing:0; font-size:11px; color:var(--text); margin:0; }
+  .settings-section code{ font-family:var(--mono); font-size:11px; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Drucker<span>Dashboard</span> <span class="ver-badge" id="verBadge"></span></h1>
+  <!-- v2.3.0: Bedien-Modus (Standard) - Drucker-/Raum-Verwaltung, MQTT-
+       Geraete-Verwaltung und Kamera-Verwaltung sind nur noch im
+       Einstellungen-Modus erreichbar (siehe enterSettingsMode()/
+       exitSettingsMode()); Layoutwahl und alle bisherigen Bedien-
+       funktionen auf den Kacheln selbst bleiben hier. v2.4.0: KEIN
+       gemeinsamer "Kameras"-Knopf mehr - externe RTSP-Kameras erscheinen
+       stattdessen als eigene Kachel direkt in der (Raum-)Ansicht, siehe
+       cardForCamera()/refresh(). -->
+  <div style="display:flex; align-items:center; gap:14px;" id="operatorControls">
+    <!-- MK6: Layout-Umschalter 1/2/3/4-spaltig, siehe setLayoutCols()/getLayoutCols() -->
+    <div class="layout-switch" title="Kartenlayout">
+      <button type="button" class="layout-btn" data-cols="1" onclick="setLayoutCols(1)">1</button>
+      <button type="button" class="layout-btn" data-cols="2" onclick="setLayoutCols(2)">2</button>
+      <button type="button" class="layout-btn" data-cols="3" onclick="setLayoutCols(3)">3</button>
+      <button type="button" class="layout-btn" data-cols="4" onclick="setLayoutCols(4)">4</button>
+    </div>
+    <button class="btn" onclick="enterSettingsMode()">&#9881; Einstellungen</button>
+  </div>
+  <div style="display:none; align-items:center; gap:14px;" id="settingsModeControls">
+    <button class="btn" onclick="exitSettingsMode()">&larr; Zur Bedienung</button>
+
+  </div>
+</header>
+
+<main id="printerList"></main>
+
+<!-- v2.3.0: Einstellungen-Modus - Drucker-/Raum-/Kamera-Verwaltung sowie
+     Verlaufs-Einstellung, siehe enterSettingsMode()/refreshSettingsPanel().
+     Bewusst EIGENER Bereich statt eines weiteren Modals: mehrere
+     unabhaengige Listen (Drucker, Raeume, Kameras) gleichzeitig sichtbar
+     zu haben erleichtert das Zuweisen von Druckern zu Raeumen. -->
+<div id="settingsPanel" style="display:none;">
+
+  <div class="settings-section">
+    <h2>Drucker verwalten</h2>
+    <div class="hint-text">
+      Hinzufuegen, entfernen, einem Raum zuweisen und die Anzeige-
+      Reihenfolge aendern. Die Kamera-Anzeige und alle Druckfunktionen
+      bleiben im Bedien-Modus.
+    </div>
+    <button class="btn" onclick="openAddModal()">+ Drucker hinzufuegen</button>
+    <div id="printerManageList" style="margin-top:14px;"></div>
+  </div>
+
+  <div class="settings-section">
+    <h2>Raeume / Gruppen</h2>
+    <div class="hint-text">
+      Drucker koennen im Bedien-Modus nach Raum gruppiert angezeigt
+      werden. Ein geloeschter Raum loescht KEINE Drucker - sie erscheinen
+      danach unter "Ohne Raum".
+    </div>
+    <div class="settings-inline-form">
+      <input id="newGroupName" placeholder="Name des neuen Raums (z. B. Werkstatt)">
+      <button class="btn" onclick="createGroup()">+ Raum anlegen</button>
+    </div>
+    <div id="groupsManageList" style="margin-top:10px;"></div>
+  </div>
+
+  <div class="settings-section">
+    <h2>Externe RTSP-Kameras</h2>
+    <div class="hint-text">
+      Zusaetzlich zu den Drucker-eigenen Kameras koennen beliebige weitere
+      RTSP(S)-Kameras hinterlegt werden (z. B. eine Raumuebersicht) - sie
+      erscheinen danach als eigene Kachel im Bedien-Modus, im zugewiesenen
+      Raum (oder unter "Ohne Raum"). Bei Bedarf mit eigener Anmeldung
+      (Benutzername/Passwort). Die Kamera muss H.264 senden (kein H.265) - das Board
+      reicht den Stream unveraendert an den Browser weiter, der ihn selbst anzeigt.
+      Hoechstens zwei Kamera-Streams gleichzeitig.
+    </div>
+    <button class="btn" onclick="openCameraModal()">+ Kamera hinzufuegen</button>
+    <div id="camerasManageList" style="margin-top:14px;"></div>
+  </div>
+
+  <div class="settings-section">
+    <h2>MQTT-Geraete (Sensoren/Schalter)</h2>
+    <div class="hint-text">
+      Zweiter, von den Druckern unabhaengiger MQTT-Broker fuer frei
+      definierte Sensoren (Anzeige eines Werts, mit Verlaufsdiagramm) und
+      Schaltflaechen (senden fester An-/Aus-Nachrichten) - wahlweise je
+      Drucker oder eigenstaendig (siehe "Kein Drucker" beim Anlegen).
+    </div>
+
+    <div class="field-label" style="margin-top:10px;">Broker-Einstellungen</div>
+    <div class="checkbox-row">
+      <input type="checkbox" id="mq_enabled">
+      <label style="margin:0;">Aktiviert</label>
+    </div>
+    <label>Broker-Adresse</label>
+    <input id="mq_host" placeholder="192.168.1.5">
+    <label>Port</label>
+    <input id="mq_port" placeholder="1883">
+    <label>Benutzername (optional)</label>
+    <input id="mq_user" placeholder="">
+    <label>Passwort (optional, leer lassen = unveraendert)</label>
+    <input id="mq_pass" type="password" placeholder="">
+    <div class="checkbox-row">
+      <input type="checkbox" id="mq_tls">
+      <label style="margin:0;">TLS verwenden</label>
+    </div>
+    <div class="settings-inline-form" style="margin-top:4px;">
+      <button class="btn" onclick="saveExtrasMqttSettings()">Broker-Einstellungen speichern</button>
+    </div>
+    <div class="hint-text" id="mqttStatusHint" style="margin-top:4px;"></div>
+
+    <div class="field-label" style="margin-top:14px;">Sensoren &amp; Schalter</div>
+    <button class="btn" onclick="openAddMqttExtraModal()">+ Sensor/Schalter hinzufuegen</button>
+    <div id="mqttExtrasList" style="margin-top:14px;" class="hint-text">Noch keine Sensoren/Schalter angelegt.</div>
+  </div>
+
+  <div class="settings-section">
+    <h2>Allgemein &amp; Netzwerk</h2>
+    <label>PreFormServer-Adresse (nur fuer Formlabs)</label>
+    <input id="set_preform" style="width:100%;" placeholder="http://192.168.1.10:44388">
+    <div class="hint-text" style="margin-top:6px;">
+      Formlabs-Geraete werden ueber "PreFormServer" abgefragt, der auf einem PC im selben Netz
+      laufen muss (<code>PreFormServer.exe --port 44388</code>). Hier die IP-Adresse DIESES PCs
+      eintragen - "localhost" funktioniert auf dem Board nicht.
+    </div>
+    <div class="checkbox-row">
+      <input type="checkbox" id="net_dhcp" onchange="toggleStaticIpFields()">
+      <label style="margin:0;">IP-Adresse automatisch per DHCP beziehen</label>
+    </div>
+    <div id="staticIpFields" style="display:none;">
+      <label>Feste IP-Adresse</label>
+      <input id="net_ip" style="width:100%;" placeholder="192.168.1.80">
+      <label style="margin-top:8px;">Subnetzmaske</label>
+      <input id="net_mask" style="width:100%;" placeholder="255.255.255.0">
+      <label style="margin-top:8px;">Gateway</label>
+      <input id="net_gw" style="width:100%;" placeholder="192.168.1.1">
+      <label style="margin-top:8px;">DNS-Server (optional, sonst Gateway)</label>
+      <input id="net_dns" style="width:100%;" placeholder="192.168.1.1">
+    </div>
+    <label style="margin-top:8px;">Geraetename (mDNS: http://&lt;name&gt;.local)</label>
+    <input id="net_host" style="width:100%;" placeholder="drucker-dashboard">
+    <label style="margin-top:8px;">Zeitserver (NTP)</label>
+    <input id="net_ntp" style="width:100%;" placeholder="pool.ntp.org">
+    <label style="margin-top:8px;">Zeitzone (POSIX-Format)</label>
+    <input id="net_tz" style="width:100%;" placeholder="CET-1CEST,M3.5.0,M10.5.0/3">
+    <div class="hint-text" style="margin-top:6px;">
+      Netzwerk-, Zeitserver- und Zeitzonen-Aenderungen werden erst nach einem Neustart des Boards aktiv.
+    </div>
+    <div class="settings-inline-form" style="margin-top:6px;">
+      <button class="btn" onclick="saveGeneralSettings()">Speichern</button>
+    </div>
+  </div>
+
+  <div class="settings-section">
+    <h2>System</h2>
+    <div id="systemInfo" class="hint-text">Wird geladen ...</div>
+    <div class="settings-inline-form" style="margin-top:12px;">
+      <button class="btn-mini" onclick="refreshSystemInfo()">Aktualisieren</button>
+      <button class="btn-mini" onclick="showLog()">Diagnose-Log anzeigen</button>
+      <button class="btn-mini" onclick="exportConfig()">config.json sichern</button>
+      <label class="btn-mini file-btn">config.json laden
+        <input type="file" accept=".json,application/json" style="display:none" onchange="importConfig(this)">
+      </label>
+      <label class="btn-mini file-btn">Firmware-Update (.bin)
+        <input type="file" accept=".bin" style="display:none" onchange="uploadFirmware(this)">
+      </label>
+      <button class="btn-mini btn-delete" onclick="rebootBoard()">Board neu starten</button>
+    </div>
+    <div class="hint-text" id="fwStatus" style="margin-top:8px;"></div>
+    <div class="hint-text" style="margin-top:4px;">
+      "config.json laden" uebernimmt auch eine config.json der PC-/Router-Version (MK6) - Drucker,
+      Raeume, Kameras und Sensoren werden uebernommen, Verlaufs-Einstellungen ignoriert.
+      Das Diagnose-Log ersetzt die Server-Konsole (z. B. Zeilen "[MK6-MQTT]").
+    </div>
+    <pre id="logBox" class="log-box" style="display:none;"></pre>
+  </div>
+
+</div>
+
+<!-- Modal: externe RTSP-Kamera anlegen/bearbeiten (Einstellungen-Modus) -->
+<div class="modal-backdrop" id="cameraModal">
+  <div class="modal">
+    <h2 id="cameraModalTitle">Kamera hinzufuegen</h2>
+    <div class="error-msg" id="cameraModalError"></div>
+
+    <label>Name</label>
+    <input id="cam_name" placeholder="z. B. Werkstatt-Uebersicht">
+    <label>RTSP(S)-URL</label>
+    <input id="cam_url" placeholder="rtsp(s)://IP:Port/Pfad">
+    <div class="hint-text">
+      Ohne Zugangsdaten in der URL selbst - die beiden Felder unten
+      werden automatisch (inkl. Sonderzeichen) eingebaut.
+    </div>
+    <label>Benutzername (optional)</label>
+    <input id="cam_username" placeholder="nur falls die Kamera eine Anmeldung verlangt">
+    <label>Passwort (optional)</label>
+    <input id="cam_password" type="password" placeholder="nur falls die Kamera eine Anmeldung verlangt">
+    <label>Raum (optional)</label>
+    <select id="cam_group"><option value="">Kein Raum</option></select>
+
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeCameraModal()">Abbrechen</button>
+      <button class="btn" onclick="submitCameraModal()">Speichern</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Drucker hinzufuegen -->
+<div class="modal-backdrop" id="addModal">
+  <div class="modal">
+    <h2>Neuen Drucker hinzufuegen</h2>
+    <div class="error-msg" id="addError"></div>
+
+    <label>Druckertyp</label>
+    <select id="f_type" onchange="toggleTypeFields()">
+      <option value="bambu">Bambu Lab</option>
+      <option value="formlabs">Formlabs (Drucker)</option>
+      <option value="formlabs_wash">Formlabs Wash L</option>
+      <option value="formlabs_cure">Formlabs Cure L</option>
+      <option value="octoprint">OctoPrint</option>
+      <option value="creality_k1">Creality K1</option>
+      <option value="creality_k1c">Creality K1C</option>
+      <option value="creality_k1max">Creality K1 Max</option>
+      <option value="creality_k1se">Creality K1 SE</option>
+      <option value="creality_other">Creality (sonstiger Klipper-Drucker)</option>
+      <option value="ultimaker">Ultimaker</option>
+    </select>
+
+    <label>Name</label>
+    <input id="f_name" placeholder="z. B. X1C Werkstatt">
+    <label>IP-Adresse des Geraets</label>
+    <input id="f_ip" placeholder="192.168.1.50">
+
+    <div id="bambuFields">
+      <label>Access Code (LAN-Modus, Drucker-Display &rarr; Einstellungen)</label>
+      <input id="f_code" placeholder="8-stelliger Code">
+      <label>Seriennummer</label>
+      <input id="f_serial" placeholder="z. B. 01P00A123456789">
+      <label>Druckerfamilie</label>
+      <select id="f_bambu_family">
+        <option value="x1">X1-Serie (X1C, X1E)</option>
+        <option value="a1">A1-Serie (A1, A1 Mini)</option>
+        <option value="h2">H2-Serie (H2S, H2D, H2D Pro, H2C)</option>
+        <option value="p1">P1-Serie (P1P, P1S)</option>
+        <option value="p2">P2-Serie (P2S)</option>
+        <option value="x2">X2-Serie (X2D)</option>
+      </select>
+      <div class="hint-text">
+        Bestimmt, welche Verbindungseinstellung fuer den Datei-Upload
+        beim ersten Versuch benutzt wird (X1- und A1-Serie brauchen
+        unterschiedliche, teils gegensaetzliche Einstellungen). Bei
+        falscher Wahl wird automatisch die jeweils andere Einstellung
+        im zweiten Versuch ausprobiert - der Druck funktioniert also so
+        oder so, eine korrekte Auswahl spart nur einen Fehlversuch.
+        Fuer die H2-, P1-, P2- und X2-Serie liegen noch keine eigenen
+        Erkenntnisse vor - sie nutzen vorerst dieselbe Einstellung wie
+        die X1-Serie.
+      </div>
+    </div>
+
+    <div id="formlabsHint" class="hint-text">
+      Benoetigt den lokal laufenden "PreFormServer" (Formlabs Local API,
+      Teil der PreForm-Installation) auf einem PC im Netz - dessen Adresse
+      unter Einstellungen &rarr; "Allgemein &amp; Netzwerk" eintragen.
+    </div>
+
+    <div id="octoprintFields">
+      <label>API-Key</label>
+      <input id="f_apikey" placeholder="OctoPrint-Einstellungen &rarr; API">
+      <label>Port</label>
+      <input id="f_port" placeholder="80">
+      <div class="checkbox-row">
+        <input type="checkbox" id="f_https">
+        <label style="margin:0;">HTTPS verwenden</label>
+      </div>
+      <label>Webcam-URL (optional)</label>
+      <input id="f_webcam" placeholder="http://IP:8080/webcam/?action=stream">
+    </div>
+
+    <div id="crealityFields">
+      <div class="hint-text">
+        Benoetigt Moonraker auf dem Drucker (bei werkseitigen K1/K1C/K1 Max/
+        K1 SE muss dafuer erst per SSH "gerootet" werden) - siehe README.
+      </div>
+      <label>API-Key (meist nicht noetig, siehe README)</label>
+      <input id="f_creality_apikey" placeholder="optional">
+      <label>Moonraker-Port</label>
+      <input id="f_creality_port" placeholder="7125">
+      <label>Webcam-URL (optional)</label>
+      <input id="f_creality_webcam" placeholder="http://IP/webcam/?action=stream">
+    </div>
+
+    <div id="ultimakerFields">
+      <div class="hint-text">
+        Nutzt die offizielle, unauthentifizierte lokale Ultimaker-API -
+        kein Login/API-Key noetig, siehe README.
+      </div>
+      <label>Port (optional)</label>
+      <input id="f_ultimaker_port" placeholder="80">
+      <label>Webcam-URL (optional)</label>
+      <input id="f_ultimaker_webcam" placeholder="http://IP:8080/?action=stream">
+    </div>
+
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeAddModal()">Abbrechen</button>
+      <button class="btn" onclick="submitAdd()">Hinzufuegen</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: MQTT-Sensor/Schalter anlegen/bearbeiten (Einstellungen-Modus).
+     v2.5.1: NUR noch dieses eine Formular ist ein Modal - die Broker-
+     Einstellungen und die Liste vorhandener Eintraege sitzen seitdem
+     inline im "MQTT-Geraete"-Abschnitt des Einstellungen-Modus, genau wie
+     bei "Drucker verwalten"/"Raeume"/"Externe RTSP-Kameras" (vorher
+     steckte der GESAMTE MQTT-Bereich - Broker-Einstellungen, Formular UND
+     Liste - hinter einem einzelnen "MQTT-Geraete verwalten"-Knopf in
+     einem grossen Modal, als einziger Abschnitt mit diesem abweichenden
+     Bedienkonzept). Entspricht strukturell #cameraModal. -->
+<div class="modal-backdrop" id="mqttExtraModal">
+  <div class="modal mqtt-modal">
+    <h2 id="mqttExtraModalTitle">Sensor/Schalter hinzufuegen</h2>
+    <div class="error-msg" id="mqttError"></div>
+
+    <label>Drucker</label>
+    <select id="mq_printer"></select>
+    <div class="hint-text" style="margin-top:-4px;">
+      "Kein Drucker (eigenstaendig)" legt einen Sensor/Schalter an, der zu
+      keinem Drucker gehoert - er erscheint danach als eigene Kachel im
+      Bedien-Modus.
+    </div>
+    <label>Art</label>
+    <select id="mq_kind" onchange="toggleMqttKindFields()">
+      <option value="sensor">Sensor (Anzeige)</option>
+      <option value="switch">Schalter (Ein/Aus)</option>
+    </select>
+    <label>Bezeichnung</label>
+    <input id="mq_label" placeholder="z. B. Temperatur Werkstatt">
+
+    <div id="mqttSensorFields">
+      <label>MQTT-Topic</label>
+      <input id="mq_topic" placeholder="home/werkstatt/temperature">
+      <label>Einheit (optional)</label>
+      <input id="mq_unit" placeholder="&deg;C">
+      <label>Anzeigebereich</label>
+      <select id="mq_display">
+        <option value="generic">Generisch (eigener Bereich "Sensoren &amp; Schalter")</option>
+        <option value="temperature">Bei Temperaturen anzeigen (wie Duese/Bett/Kammer)</option>
+        <option value="humidity">Bei Luftfeuchtigkeit anzeigen (wie AMS-Feuchte)</option>
+      </select>
+      <div class="hint-text" style="margin-top:-4px;">
+        Zeigt seit v2.5.1 IMMER ein Verlaufsdiagramm - diese Auswahl
+        entscheidet nur noch, WO der Sensor angezeigt wird.
+      </div>
+    </div>
+    <div id="mqttSwitchFields" style="display:none;">
+      <label>Befehls-Topic</label>
+      <input id="mq_cmd_topic" placeholder="home/werkstatt/licht/set">
+      <label>Payload "Ein"</label>
+      <input id="mq_payload_on" placeholder="ON">
+      <label>Payload "Aus"</label>
+      <input id="mq_payload_off" placeholder="OFF">
+    </div>
+
+    <div class="field-label" style="margin-top:14px;">
+      Zuletzt vom Broker empfangene Topics (anklicken, um das Topic-Feld zu uebernehmen)
+    </div>
+    <div id="mqttDiscoveredList" class="mqtt-discovered-list hint-text">
+      Noch keine Nachrichten vom Broker empfangen.
+    </div>
+
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeMqttExtraModal()">Abbrechen</button>
+      <button class="btn" id="mqttSubmitBtn" onclick="submitMqttExtra()">Hinzufuegen</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Kamera -->
+<div class="modal-backdrop cam-modal" id="camModal">
+  <span class="cam-close" onclick="closeCam()">&times;</span>
+  <div class="modal">
+    <img id="camImg" src="" style="display:none;">
+    <video id="camVideo" muted autoplay playsinline style="display:none;"></video>
+    <div id="camInfo" class="hint-text" style="display:none; padding:16px; max-width:480px;"></div>
+    <div id="camError" class="hint-text" style="display:none; padding:16px; max-width:480px;"></div>
+  </div>
+</div>
+
+<!-- Modal: AMS-Zuordnung pruefen/korrigieren vor dem Drucken -->
+<div class="modal-backdrop" id="amsModal">
+  <div class="modal ams-modal">
+    <h2>AMS-Zuordnung pruefen</h2>
+    <div class="file-name" id="amsModalFilename" style="margin-bottom:16px;"></div>
+    <div id="amsModalRows"></div>
+    <div class="ams-progress-wrap" id="amsProgressWrap" style="display:none;">
+      <div class="ams-progress-track"><div class="ams-progress-bar" id="amsProgressBar" style="width:0%"></div></div>
+      <div class="ams-progress-label" id="amsProgressLabel"></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" id="amsModalCancelBtn" onclick="cancelAmsModal()">Abbrechen</button>
+      <button class="btn" id="amsModalConfirmBtn" onclick="confirmAmsModal()">Drucken starten</button>
+    </div>
+  </div>
+</div>
+
+<!-- Toasts (unabhaengig vom Drucker-Grid, ueberleben refresh()) -->
+<div class="toast-container" id="toastContainer"></div>
+
+<script>
+const CAM_ICON = `<svg viewBox="0 0 24 24"><path d="M4 7h3l1.5-2h7L17 7h3a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2zm8 3a4 4 0 1 0 0 8 4 4 0 0 0 0-8z"/></svg>`;
+const FL_LABELS = {
+  formlabs:      { badge: 'Formlabs Drucker', file: 'Aktueller Druckauftrag', showMaterial: true  },
+  formlabs_wash: { badge: 'Formlabs Wash L',  file: 'Aktueller Waschzyklus',  showMaterial: false },
+  formlabs_cure: { badge: 'Formlabs Cure L',  file: 'Aktueller Haertezyklus', showMaterial: false }
+};
+
+const CREALITY_TYPES = ['creality_k1', 'creality_k1c', 'creality_k1max', 'creality_k1se', 'creality_other'];
+const CREALITY_LABELS = {
+  creality_k1:    'Creality K1',
+  creality_k1c:   'Creality K1C',
+  creality_k1max: 'Creality K1 Max',
+  creality_k1se:  'Creality K1 SE',
+  creality_other: 'Creality (Klipper)'
+};
+
+function toggleTypeFields(){
+  const type = document.getElementById('f_type').value;
+  document.getElementById('bambuFields').style.display = (type === 'bambu') ? 'block' : 'none';
+  document.getElementById('octoprintFields').style.display = (type === 'octoprint') ? 'block' : 'none';
+  document.getElementById('crealityFields').style.display = CREALITY_TYPES.includes(type) ? 'block' : 'none';
+  document.getElementById('ultimakerFields').style.display = (type === 'ultimaker') ? 'block' : 'none';
+  document.getElementById('formlabsHint').style.display =
+    (type === 'formlabs' || type === 'formlabs_wash' || type === 'formlabs_cure') ? 'block' : 'none';
+}
+
+function openAddModal(){
+  document.getElementById('addError').style.display='none';
+  ['f_name','f_ip','f_code','f_serial','f_apikey','f_port','f_webcam',
+   'f_creality_apikey','f_creality_port','f_creality_webcam',
+   'f_ultimaker_port','f_ultimaker_webcam'].forEach(id => document.getElementById(id).value='');
+  document.getElementById('f_https').checked = false;
+  document.getElementById('f_bambu_family').value = 'x1';
+  document.getElementById('f_type').value = 'bambu';
+  toggleTypeFields();
+  document.getElementById('addModal').classList.add('show');
+}
+function closeAddModal(){ document.getElementById('addModal').classList.remove('show'); }
+
+async function submitAdd(){
+  const type = document.getElementById('f_type').value;
+  const body = {
+    type: type,
+    name: document.getElementById('f_name').value.trim(),
+    ip: document.getElementById('f_ip').value.trim(),
+  };
+  if(type === 'bambu'){
+    body.access_code = document.getElementById('f_code').value.trim();
+    body.serial = document.getElementById('f_serial').value.trim();
+    body.bambu_family = document.getElementById('f_bambu_family').value;
+  } else if(type === 'octoprint'){
+    body.api_key = document.getElementById('f_apikey').value.trim();
+    body.port = document.getElementById('f_port').value.trim() || 80;
+    body.https = document.getElementById('f_https').checked;
+    body.webcam_url = document.getElementById('f_webcam').value.trim();
+  } else if(CREALITY_TYPES.includes(type)){
+    body.api_key = document.getElementById('f_creality_apikey').value.trim();
+    body.port = document.getElementById('f_creality_port').value.trim() || 7125;
+    body.webcam_url = document.getElementById('f_creality_webcam').value.trim();
+  } else if(type === 'ultimaker'){
+    body.port = document.getElementById('f_ultimaker_port').value.trim() || 80;
+    body.webcam_url = document.getElementById('f_ultimaker_webcam').value.trim();
+  }
+
+  const res = await fetch('/api/printers', {
+    method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)
+  });
+  const data = await res.json();
+  if(!res.ok){
+    const err = document.getElementById('addError');
+    err.textContent = data.error || 'Fehler beim Hinzufuegen.';
+    err.style.display='block';
+    return;
+  }
+  closeAddModal();
+  // v2.3.0: die "+ Drucker hinzufuegen"-Schaltflaeche ist jetzt nur noch
+  // im Einstellungen-Modus erreichbar - dort muss die Verwaltungsliste
+  // selbst aktualisiert werden, refresh() allein wuerde nur die (dort
+  // ausgeblendete) Bedienansicht aktualisieren.
+  if(settingsMode) refreshSettingsPanel();
+  else refresh();
+}
+
+// ----------------------------------------------------------------------
+// v2.2.15: MQTT-Sensoren & Schalter komplett ueber die Web-Oberflaeche
+// verwalten (Broker-Einstellungen + je Drucker Sensor-/Schalter-
+// Eintraege) - vorher nur per manueller config.json-Bearbeitung
+// moeglich. mqttEditState haelt fest, ob das Formular gerade einen
+// bestehenden Eintrag bearbeitet (dann PUT statt POST beim Absenden).
+// ----------------------------------------------------------------------
+let mqttEditState = null; // { printerId, extraId } oder null (= "neu anlegen")
+
+function toggleMqttKindFields(){
+  const kind = document.getElementById('mq_kind').value;
+  document.getElementById('mqttSensorFields').style.display = (kind === 'sensor') ? 'block' : 'none';
+  document.getElementById('mqttSwitchFields').style.display = (kind === 'switch') ? 'block' : 'none';
+}
+
+function populateMqttPrinterSelect(selectedId){
+  const sel = document.getElementById('mq_printer');
+  // v2.5.0: zusaetzliche Option fuer einen Sensor/Schalter OHNE
+  // Druckerzuordnung (leerer Wert) - behebt den Fehler, dass sich ohne
+  // mindestens einen bestehenden Drucker ueberhaupt kein Sensor/Schalter
+  // anlegen liess (siehe submitMqttExtra()).
+  sel.innerHTML = '<option value="">Kein Drucker (eigenstaendig)</option>' +
+    lastPrinterList.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
+  sel.value = selectedId || '';
+}
+
+async function renderMqttExtrasList(){
+  const list = document.getElementById('mqttExtrasList');
+  const rows = [];
+  lastPrinterList.forEach(p => {
+    (p.extras || []).forEach(e => {
+      const displayLabel = { generic: 'Sensoren-Bereich', temperature: 'Temperaturen-Bereich', humidity: 'Feuchte-Bereich' }[e.display] || 'Sensoren-Bereich';
+      const sub = (e.kind === 'switch')
+        ? `Schalter &middot; Befehls-Topic: ${e.command_topic}`
+        : `Sensor &middot; Topic: ${e.topic}${e.unit ? ' &middot; Einheit: ' + e.unit : ''} &middot; Anzeige: ${displayLabel}`;
+      rows.push(`<div class="mqtt-extra-row">
+        <div class="mqtt-extra-info">
+          <div><b>${e.label}</b> (${p.name})</div>
+          <div class="mqtt-extra-sub">${sub}</div>
+        </div>
+        <div>
+          <button class="btn-mini" onclick="startEditMqttExtra('${p.id}','${e.id}')">Bearbeiten</button>
+          <button class="btn-mini btn-delete" onclick="deleteMqttExtra('${p.id}','${e.id}')">Loeschen</button>
+        </div>
+      </div>`);
+    });
+  });
+  // v2.5.0: eigenstaendige (druckerunabhaengige) Eintraege - frisch vom
+  // Server geladen (nicht aus lastStandaloneExtrasList, damit die Liste
+  // auch direkt nach dem Anlegen/Bearbeiten/Loeschen sofort aktuell ist,
+  // ohne auf den naechsten regulaeren refresh()-Zyklus zu warten).
+  try{
+    const res = await fetch('/api/standalone_extras');
+    lastStandaloneExtrasList = await res.json();
+  } catch(e){ /* Liste bleibt auf dem letzten bekannten Stand */ }
+  lastStandaloneExtrasList.forEach(e => {
+    const displayLabel = { generic: 'Sensoren-Bereich', temperature: 'Temperaturen-Bereich', humidity: 'Feuchte-Bereich' }[e.display] || 'Sensoren-Bereich';
+    const sub = (e.kind === 'switch')
+      ? `Schalter &middot; Befehls-Topic: ${e.command_topic}`
+      : `Sensor &middot; Topic: ${e.topic}${e.unit ? ' &middot; Einheit: ' + e.unit : ''} &middot; Anzeige: ${displayLabel}`;
+    // v2.5.0: eigenstaendige Eintraege koennen, analog zu Druckern und
+    // externen Kameras, einem Raum zugewiesen werden, damit sie sich im
+    // Bedien-Modus sinnvoll einsortieren - ueber ein Dropdown direkt in
+    // dieser Zeile (lastGroupList ist bereits ueber refreshSettingsPanel()
+    // befuellt, bevor dieser Dialog aus dem Einstellungen-Modus heraus
+    // geoeffnet werden kann).
+    const groupOptions = '<option value="">Ohne Raum</option>' + lastGroupList.map(g =>
+      `<option value="${g.id}" ${e.group_id === g.id ? 'selected' : ''}>${g.name}</option>`).join('');
+    rows.push(`<div class="mqtt-extra-row">
+      <div class="mqtt-extra-info">
+        <div><b>${e.label}</b> (kein Drucker)</div>
+        <div class="mqtt-extra-sub">${sub}</div>
+      </div>
+      <div>
+        <select onchange="assignStandaloneExtraGroup('${e.id}', this.value)">${groupOptions}</select>
+        <button class="btn-mini" onclick="startEditMqttExtra('','${e.id}')">Bearbeiten</button>
+        <button class="btn-mini btn-delete" onclick="deleteMqttExtra('','${e.id}')">Loeschen</button>
+      </div>
+    </div>`);
+  });
+  list.innerHTML = rows.length ? rows.join('') : 'Noch keine Sensoren/Schalter angelegt.';
+}
+
+async function refreshMqttDiscovered(){
+  const list = document.getElementById('mqttDiscoveredList');
+  try{
+    const res = await fetch('/api/extras_mqtt/discovered');
+    const topics = await res.json();
+    if(!topics || topics.length === 0){
+      list.innerHTML = 'Noch keine Nachrichten vom Broker empfangen.';
+      return;
+    }
+    list.innerHTML = topics.map(t =>
+      `<div class="mqtt-discovered-row" onclick="useDiscoveredTopic('${t.topic}')">
+        <span>${t.topic}</span><span>${t.value}</span>
+      </div>`
+    ).join('');
+  } catch(e){
+    list.innerHTML = 'Themenliste konnte nicht geladen werden.';
+  }
+}
+
+function useDiscoveredTopic(topic){
+  // Nur beim Sensor sinnvoll (Schalter-Topics werden von diesem
+  // Dashboard selbst veroeffentlicht, nicht empfangen) - schaltet bei
+  // Bedarf automatisch auf "Sensor" um, damit das richtige Feld sichtbar ist.
+  document.getElementById('mq_kind').value = 'sensor';
+  toggleMqttKindFields();
+  document.getElementById('mq_topic').value = topic;
+}
+
+// v2.5.1: laedt die Broker-Einstellungen in die jetzt INLINE im
+// "MQTT-Geraete"-Abschnitt sitzenden Felder und baut die Eintragsliste
+// auf - wird von refreshSettingsPanel() aufgerufen (wie
+// refreshPrinterManageList()/refreshGroupsManageList()/
+// refreshCamerasManageList()), nicht mehr erst beim Oeffnen eines
+// eigenen Modals (das gab es vor v2.5.1 nur fuer den MQTT-Bereich, als
+// einzigen Abschnitt mit abweichendem Bedienkonzept).
+async function refreshMqttSettingsSection(){
+  renderMqttExtrasList();
+  try{
+    const res = await fetch('/api/extras_mqtt');
+    const cfg = await res.json();
+    document.getElementById('mq_enabled').checked = !!cfg.enabled;
+    document.getElementById('mq_host').value = cfg.host || '';
+    document.getElementById('mq_port').value = cfg.port || 1883;
+    document.getElementById('mq_user').value = cfg.username || '';
+    document.getElementById('mq_pass').value = '';
+    document.getElementById('mq_tls').checked = !!cfg.tls;
+    document.getElementById('mqttStatusHint').textContent = cfg.state ? 'Status: ' + cfg.state : '';
+  } catch(e){
+    // Broker-Einstellungen konnten nicht geladen werden - Formular
+    // bleibt leer, Sensor-/Schalter-Verwaltung funktioniert trotzdem.
+  }
+}
+
+async function saveExtrasMqttSettings(){
+  const body = {
+    enabled: document.getElementById('mq_enabled').checked,
+    host: document.getElementById('mq_host').value.trim(),
+    port: document.getElementById('mq_port').value.trim() || 1883,
+    username: document.getElementById('mq_user').value.trim(),
+    tls: document.getElementById('mq_tls').checked,
+  };
+  const pass = document.getElementById('mq_pass').value;
+  if(pass !== '') body.password = pass; // leer gelassen = Passwort unveraendert (siehe Backend)
+
+  let data;
+  try{
+    const res = await fetch('/api/extras_mqtt', {
+      method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)
+    });
+    data = await res.json();
+    if(!res.ok){
+      showToast(data.error || 'Fehler beim Speichern der Broker-Einstellungen.', 'err');
+      return;
+    }
+  } catch(e){
+    showToast('Netzwerkfehler beim Speichern der Broker-Einstellungen.', 'err');
+    return;
+  }
+  document.getElementById('mq_pass').value = '';
+  document.getElementById('mqttStatusHint').textContent =
+    'Gespeichert - Verbindung wird neu aufgebaut. Empfangene Topics erscheinen nach kurzer Zeit im Anlegen-Dialog.';
+}
+
+function resetMqttExtraForm(){
+  document.getElementById('mq_kind').value = 'sensor';
+  document.getElementById('mq_label').value = '';
+  document.getElementById('mq_topic').value = '';
+  document.getElementById('mq_unit').value = '';
+  document.getElementById('mq_display').value = 'generic';
+  document.getElementById('mq_cmd_topic').value = '';
+  document.getElementById('mq_payload_on').value = '';
+  document.getElementById('mq_payload_off').value = '';
+  document.getElementById('mq_kind').disabled = false;
+  document.getElementById('mq_printer').disabled = false;
+  toggleMqttKindFields();
+}
+
+// v2.5.1: oeffnet das Modal fuer einen NEUEN Eintrag - Gegenstueck zu
+// startEditMqttExtra() weiter unten (Bearbeiten). Ersetzt das bisherige
+// openMqttModal(), das zusaetzlich noch die Broker-Einstellungen und die
+// komplette Liste geladen hat - beides sitzt seit v2.5.1 bereits inline
+// im Einstellungen-Modus (siehe refreshMqttSettingsSection()).
+function openAddMqttExtraModal(){
+  mqttEditState = null;
+  document.getElementById('mqttError').style.display = 'none';
+  document.getElementById('mqttExtraModalTitle').textContent = 'Sensor/Schalter hinzufuegen';
+  document.getElementById('mqttSubmitBtn').textContent = 'Hinzufuegen';
+  resetMqttExtraForm();
+  populateMqttPrinterSelect();
+  refreshMqttDiscovered();
+  document.getElementById('mqttExtraModal').classList.add('show');
+}
+
+function closeMqttExtraModal(){
+  document.getElementById('mqttExtraModal').classList.remove('show');
+  mqttEditState = null;
+}
+
+function startEditMqttExtra(printerId, extraId){
+  // v2.5.0: printerId === '' bedeutet "eigenstaendiger Eintrag ohne
+  // Drucker" - dann wird in lastStandaloneExtrasList statt in einem
+  // bestimmten Drucker nachgeschlagen (siehe renderMqttExtrasList()).
+  let e;
+  if(printerId){
+    const p = lastPrinterList.find(x => x.id === printerId);
+    e = p && (p.extras || []).find(x => x.id === extraId);
+  } else {
+    e = lastStandaloneExtrasList.find(x => x.id === extraId);
+  }
+  if(!e) return;
+  mqttEditState = { printerId, extraId };
+  document.getElementById('mqttError').style.display = 'none';
+  resetMqttExtraForm();
+  populateMqttPrinterSelect(printerId);
+  document.getElementById('mq_printer').disabled = true; // Zuordnung zum Drucker aendert sich beim Bearbeiten nicht
+  document.getElementById('mq_kind').value = e.kind;
+  document.getElementById('mq_kind').disabled = true; // Art (Sensor/Schalter) laesst sich nachtraeglich nicht wechseln
+  toggleMqttKindFields();
+  document.getElementById('mq_label').value = e.label || '';
+  if(e.kind === 'switch'){
+    document.getElementById('mq_cmd_topic').value = e.command_topic || '';
+    document.getElementById('mq_payload_on').value = e.payload_on || '';
+    document.getElementById('mq_payload_off').value = e.payload_off || '';
+  } else {
+    document.getElementById('mq_topic').value = e.topic || '';
+    document.getElementById('mq_unit').value = e.unit || '';
+    document.getElementById('mq_display').value = e.display || 'generic';
+  }
+  document.getElementById('mqttExtraModalTitle').textContent = 'Eintrag bearbeiten';
+  document.getElementById('mqttSubmitBtn').textContent = 'Aktualisieren';
+  refreshMqttDiscovered();
+  document.getElementById('mqttExtraModal').classList.add('show');
+}
+
+async function submitMqttExtra(){
+  const kind = document.getElementById('mq_kind').value;
+  const body = {
+    kind: kind,
+    label: document.getElementById('mq_label').value.trim(),
+  };
+  if(kind === 'sensor'){
+    body.topic = document.getElementById('mq_topic').value.trim();
+    body.unit = document.getElementById('mq_unit').value.trim();
+    body.display = document.getElementById('mq_display').value;
+  } else {
+    body.command_topic = document.getElementById('mq_cmd_topic').value.trim();
+    body.payload_on = document.getElementById('mq_payload_on').value.trim();
+    body.payload_off = document.getElementById('mq_payload_off').value.trim();
+  }
+
+  const err = document.getElementById('mqttError');
+  let res;
+  // v2.5.0: ein leerer printerId-Wert ("Kein Drucker (eigenstaendig)")
+  // fuehrt jetzt zum neuen, druckerunabhaengigen Endpunkt statt zu einer
+  // wortlosen Fehlermeldung - behebt den gemeldeten Fehler, dass sich
+  // ohne Drucker-Zuordnung gar kein Sensor/Schalter anlegen liess.
+  if(mqttEditState){
+    res = mqttEditState.printerId
+      ? await fetch('/api/printers/' + mqttEditState.printerId + '/extras/' + mqttEditState.extraId, {
+          method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)
+        })
+      : await fetch('/api/standalone_extras/' + mqttEditState.extraId, {
+          method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)
+        });
+  } else {
+    const printerId = document.getElementById('mq_printer').value;
+    res = printerId
+      ? await fetch('/api/printers/' + printerId + '/extras', {
+          method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)
+        })
+      : await fetch('/api/standalone_extras', {
+          method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)
+        });
+  }
+  const data = await res.json();
+  if(!res.ok){
+    err.textContent = data.error || 'Fehler beim Speichern.';
+    err.style.display = 'block';
+    return;
+  }
+  err.style.display = 'none';
+  closeMqttExtraModal();
+  await refresh();
+  renderMqttExtrasList();
+}
+
+async function deleteMqttExtra(printerId, extraId){
+  if(!confirm('Diesen Eintrag wirklich loeschen?')) return;
+  if(printerId){
+    await fetch('/api/printers/' + printerId + '/extras/' + extraId, { method:'DELETE' });
+  } else {
+    await fetch('/api/standalone_extras/' + extraId, { method:'DELETE' });
+  }
+  if(mqttEditState && mqttEditState.printerId === printerId && mqttEditState.extraId === extraId){
+    closeMqttExtraModal();
+  }
+  await refresh();
+  renderMqttExtrasList();
+}
+
+// v2.5.0: Raum-Zuweisung eines eigenstaendigen Sensors/Schalters - siehe
+// renderMqttExtrasList() fuer das Dropdown, das dies aufruft.
+async function assignStandaloneExtraGroup(extraId, groupId){
+  await fetch('/api/standalone_extras/' + extraId + '/group', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ group_id: groupId || null })
+  });
+  await refresh();
+  renderMqttExtrasList();
+}
+
+async function deletePrinter(id){
+  if(!confirm('Diesen Drucker wirklich entfernen?')) return;
+  await fetch('/api/printers/' + id, { method:'DELETE' });
+  // v2.3.0: wird jetzt nur noch aus dem Einstellungen-Modus heraus
+  // aufgerufen (siehe refreshPrinterManageList()) - dort muss die
+  // Verwaltungsliste selbst aktualisiert werden, refresh() allein wuerde
+  // nur die (dort ausgeblendete) Bedienansicht aktualisieren.
+  if(settingsMode) refreshSettingsPanel();
+  else refresh();
+}
+
+// ----------------------------------------------------------------------
+// RP2350: Kamera-Anzeige.
+//  - A1-Serie (MJPEG, Port 6000) und OctoPrint/Creality/Ultimaker-Webcams:
+//    wie bisher als <img> (Drucker-Webcams werden per Weiterleitung direkt
+//    vom Browser geladen, das Board reicht nichts durch).
+//  - X1/P1/P2/H2/X2-Serie und externe RTSP(S)-Kameras: das Original hat hier
+//    mit FFmpeg nach MJPEG umgewandelt. Auf dem Board gibt es kein FFmpeg -
+//    es leitet die H.264-Pakete unveraendert weiter, und der Browser baut
+//    daraus selbst ein Video (rtspPlayer weiter unten, Media Source Extensions).
+// ----------------------------------------------------------------------
+let activeRtspPlayer = null;
+
+function camUsesRtsp(p){
+  return p && p.type === 'bambu' && (p.bambu_family || 'x1') !== 'a1';
+}
+
+function openCam(id){
+  const p = lastPrinterList.find(x => x.id === id);
+  if(camUsesRtsp(p)){
+    openRtspUrl('/camera/' + id + '?_=' + Date.now());
+  } else {
+    openCamUrl('/camera/' + id + '?_=' + Date.now());
+  }
+}
+
+function showCamError(text){
+  const errBox = document.getElementById('camError');
+  errBox.textContent = text;
+  errBox.style.display = '';
+}
+
+function resetCamModal(){
+  const img = document.getElementById('camImg');
+  const video = document.getElementById('camVideo');
+  const errBox = document.getElementById('camError');
+  const info = document.getElementById('camInfo');
+  errBox.style.display = 'none';
+  errBox.textContent = '';
+  info.style.display = 'none';
+  info.textContent = '';
+  img.onerror = null;
+  img.src = '';
+  img.style.display = 'none';
+  if(activeRtspPlayer){ activeRtspPlayer.stop(); activeRtspPlayer = null; }
+  video.style.display = 'none';
+}
+
+function openCamUrl(url){
+  resetCamModal();
+  const img = document.getElementById('camImg');
+  img.style.display = '';
+  // Bei Fehlern liefert /camera/<id> eine kurze Klartext-Meldung statt eines
+  // Bildes - dann denselben Pfad noch einmal als Text holen und anzeigen.
+  img.onerror = function(){
+    img.style.display = 'none';
+    fetch(url).then(function(r){
+      return r.text().then(function(t){ return {status: r.status, text: t}; });
+    }).then(function(res){
+      showCamError(res.text || ('Kamera-Stream konnte nicht geladen werden (HTTP ' + res.status + ').'));
+    }).catch(function(){
+      showCamError('Kamera-Stream konnte nicht geladen werden (Webcam vom Browser aus nicht erreichbar?).');
+    });
+  };
+  img.src = url;
+  document.getElementById('camModal').classList.add('show');
+}
+
+function openRtspUrl(url){
+  resetCamModal();
+  const video = document.getElementById('camVideo');
+  const info = document.getElementById('camInfo');
+  video.style.display = '';
+  info.textContent = 'Verbinde mit der Kamera ...';
+  info.style.display = '';
+  document.getElementById('camModal').classList.add('show');
+  activeRtspPlayer = new RtspPlayer(video, url, {
+    onError: (msg) => { video.style.display = 'none'; info.style.display = 'none'; showCamError(msg); },
+    onPlaying: () => { info.style.display = 'none'; },
+    onInfo: (msg) => { info.textContent = msg; info.style.display = ''; },
+  });
+  activeRtspPlayer.start();
+}
+
+function closeCam(){
+  resetCamModal();
+  document.getElementById('camModal').classList.remove('show');
+}
+
+// ----------------------------------------------------------------------
+// RtspPlayer: liest den vom Board weitergereichten RTP-Strom
+// (Rahmen: 1 Byte Typ, 4 Byte Laenge, Nutzdaten; Typ 1 = Info-JSON,
+// 2 = RTP-Paket, 3 = Fehlertext), setzt H.264-Zugriffseinheiten zusammen
+// und erzeugt daraus fragmentiertes MP4 fuer Media Source Extensions.
+// ----------------------------------------------------------------------
+class RtspPlayer {
+  constructor(video, url, cb){
+    this.video = video; this.url = url; this.cb = cb || {};
+    this.abort = new AbortController();
+    this.stopped = false;
+    this.sps = null; this.pps = null;
+    this.fu = null;             // laufendes FU-A-Fragment
+    this.au = []; this.auTs = null; this.auKey = false;
+    this.pending = null;        // vorige Zugriffseinheit (Dauer erst mit der naechsten bekannt)
+    this.firstTs = null; this.tsHigh = 0; this.lastRawTs = null;
+    this.seq = 1;
+    this.queue = []; this.sb = null; this.ms = null; this.initDone = false;
+    this.playingReported = false;
+    this.lastFrameAt = 0;
+  }
+  start(){ this.run().catch(e => { if(!this.stopped) this.fail('Kamera-Stream abgebrochen: ' + (e && e.message ? e.message : e)); }); }
+  stop(){
+    this.stopped = true;
+    try{ this.abort.abort(); }catch(e){}
+    if(this.timer) clearInterval(this.timer);
+    try{ this.video.pause(); }catch(e){}
+    this.video.removeAttribute('src');
+    try{ this.video.load(); }catch(e){}
+  }
+  fail(msg){ if(this.stopped) return; this.stop(); if(this.cb.onError) this.cb.onError(msg); }
+
+  async run(){
+    if(!window.MediaSource && !window.ManagedMediaSource){
+      return this.fail('Dieser Browser unterstuetzt keine Media Source Extensions - die Videoanzeige ist hier nicht moeglich (z. B. aeltere iPhones). Bitte einen Desktop-Browser oder Android verwenden.');
+    }
+    const res = await fetch(this.url, {signal: this.abort.signal, cache: 'no-store'});
+    if(!res.ok){
+      const t = await res.text().catch(() => '');
+      return this.fail(t || ('Kamera-Stream konnte nicht geladen werden (HTTP ' + res.status + ').'));
+    }
+    const reader = res.body.getReader();
+    let buf = new Uint8Array(0);
+    while(!this.stopped){
+      const {value, done} = await reader.read();
+      if(done) break;
+      // anhaengen
+      const nb = new Uint8Array(buf.length + value.length);
+      nb.set(buf, 0); nb.set(value, buf.length); buf = nb;
+      let off = 0;
+      while(buf.length - off >= 5){
+        const type = buf[off];
+        const len = ((buf[off+1] << 24) | (buf[off+2] << 16) | (buf[off+3] << 8) | buf[off+4]) >>> 0;
+        if(buf.length - off - 5 < len) break;
+        const payload = buf.subarray(off + 5, off + 5 + len);
+        off += 5 + len;
+        this.onFrame(type, payload);
+        if(this.stopped) return;
+      }
+      buf = buf.slice(off);
+    }
+    if(!this.stopped) this.fail('Die Kamera hat den Stream beendet.');
+  }
+
+  onFrame(type, payload){
+    if(type === 1){
+      const info = JSON.parse(new TextDecoder().decode(payload));
+      this.info = info;
+      if(info.codec !== 'H264'){
+        return this.fail('Die Kamera sendet ' + (info.codec || 'ein unbekanntes Format') +
+          ' - im Browser kann ohne FFmpeg nur H.264 angezeigt werden. Bitte in den Kamera-Einstellungen ' +
+          'H.264 (ggf. einen zweiten Stream/Substream) einstellen.');
+      }
+      // sprop-parameter-sets aus dem SDP (SPS/PPS vorab)
+      const m = /sprop-parameter-sets=([^;\s]+)/i.exec(info.fmtp || '');
+      if(m){
+        m[1].split(',').forEach(b64 => {
+          try{
+            const bin = atob(b64); const u = new Uint8Array(bin.length);
+            for(let i=0;i<bin.length;i++) u[i] = bin.charCodeAt(i);
+            this.onNal(u, null);
+          }catch(e){}
+        });
+      }
+      if(this.cb.onInfo) this.cb.onInfo('Warte auf das erste Vollbild der Kamera ...');
+    } else if(type === 2){
+      this.onRtp(payload);
+    } else if(type === 3){
+      this.fail(new TextDecoder().decode(payload));
+    }
+  }
+
+  onRtp(p){
+    if(p.length < 12) return;
+    const cc = p[0] & 0x0f, ext = p[0] & 0x10, pad = p[0] & 0x20;
+    const marker = (p[1] & 0x80) !== 0;
+    const ts = ((p[4] << 24) | (p[5] << 16) | (p[6] << 8) | p[7]) >>> 0;
+    let off = 12 + cc * 4;
+    if(ext){
+      if(p.length < off + 4) return;
+      off += 4 + ((p[off+2] << 8) | p[off+3]) * 4;
+    }
+    let end = p.length;
+    if(pad) end -= p[p.length - 1];
+    if(off >= end) return;
+    if(this.auTs !== null && ts !== this.auTs) this.flushAu();
+    this.auTs = ts;
+    const data = p.subarray(off, end);
+    const nalType = data[0] & 0x1f;
+    if(nalType >= 1 && nalType <= 23){
+      this.onNal(data, ts);
+    } else if(nalType === 24){          // STAP-A
+      let i = 1;
+      while(i + 2 <= data.length){
+        const n = (data[i] << 8) | data[i+1]; i += 2;
+        if(i + n > data.length) break;
+        this.onNal(data.subarray(i, i + n), ts); i += n;
+      }
+    } else if(nalType === 28){          // FU-A
+      const fuh = data[1];
+      const start = fuh & 0x80, stop = fuh & 0x40;
+      if(start){
+        this.fu = [new Uint8Array([(data[0] & 0xe0) | (fuh & 0x1f)])];
+      }
+      if(this.fu){
+        this.fu.push(data.subarray(2));
+        if(stop){
+          const total = this.fu.reduce((a, b) => a + b.length, 0);
+          const nal = new Uint8Array(total); let o = 0;
+          this.fu.forEach(x => { nal.set(x, o); o += x.length; });
+          this.fu = null;
+          this.onNal(nal, ts);
+        }
+      }
+    }
+    if(marker) this.flushAu();
+  }
+
+  onNal(nal, ts){
+    const t = nal[0] & 0x1f;
+    if(t === 7){ this.sps = nal.slice(); return; }
+    if(t === 8){ this.pps = nal.slice(); return; }
+    if(t === 9) return;                  // Access Unit Delimiter
+    if(ts === null) return;
+    if(t === 5) this.auKey = true;
+    this.au.push(nal.slice());
+  }
+
+  flushAu(){
+    if(!this.au.length){ this.auTs = null; return; }
+    const nals = this.au, key = this.auKey, ts = this.auTs;
+    this.au = []; this.auKey = false; this.auTs = null;
+    // 32-Bit-RTP-Zeitstempel zu fortlaufender Zeit erweitern
+    if(this.lastRawTs !== null && ts < this.lastRawTs && this.lastRawTs - ts > 0x80000000) this.tsHigh += 0x100000000;
+    this.lastRawTs = ts;
+    const ext = this.tsHigh + ts;
+    if(!this.initDone){
+      if(!key || !this.sps || !this.pps) return;   // auf Schluesselbild + SPS/PPS warten
+      if(!this.initMse()) return;
+      this.firstTs = ext;
+    }
+    const size = nals.reduce((a, n) => a + 4 + n.length, 0);
+    const data = new Uint8Array(size); let o = 0;
+    nals.forEach(n => {
+      data[o] = n.length >>> 24; data[o+1] = (n.length >>> 16) & 255; data[o+2] = (n.length >>> 8) & 255; data[o+3] = n.length & 255;
+      data.set(n, o + 4); o += 4 + n.length;
+    });
+    const cur = {data, key, t: ext - this.firstTs};
+    if(this.pending){
+      let dur = cur.t - this.pending.t;
+      if(dur <= 0 || dur > 180000) dur = 3000;
+      this.appendSample(this.pending, dur);
+    }
+    this.pending = cur;
+  }
+
+  initMse(){
+    const sps = this.sps;
+    const codec = 'avc1.' + [sps[1], sps[2], sps[3]].map(x => x.toString(16).padStart(2, '0')).join('');
+    const mime = 'video/mp4; codecs="' + codec + '"';
+    const MS = window.MediaSource || window.ManagedMediaSource;
+    if(!MS.isTypeSupported(mime)){
+      this.fail('Dieser Browser kann das H.264-Video der Kamera nicht abspielen (' + codec + ').');
+      return false;
+    }
+    const dim = parseSpsSize(sps) || {w: 1920, h: 1080};
+    this.initSegment = mp4Init(sps, this.pps, dim.w, dim.h);
+    this.ms = new MS();
+    if(window.ManagedMediaSource && MS === window.ManagedMediaSource) this.video.disableRemotePlayback = true;
+    this.video.src = URL.createObjectURL(this.ms);
+    this.initDone = true;
+    this.ms.addEventListener('sourceopen', () => {
+      try{
+        this.sb = this.ms.addSourceBuffer(mime);
+        this.sb.mode = 'segments';
+        this.sb.addEventListener('updateend', () => this.pump());
+        this.queue.unshift(this.initSegment);
+        this.pump();
+      }catch(e){ this.fail('Video konnte nicht initialisiert werden: ' + e.message); }
+    });
+    this.timer = setInterval(() => this.keepLive(), 1000);
+    return true;
+  }
+
+  appendSample(s, dur){
+    const frag = mp4Fragment(this.seq++, s.t, dur, s.data, s.key);
+    this.queue.push(frag);
+    this.lastFrameAt = Date.now();
+    this.pump();
+  }
+
+  pump(){
+    if(!this.sb || this.sb.updating || !this.queue.length || this.stopped) return;
+    if(this.queue.length > 120) this.queue.splice(1, this.queue.length - 60); // Browser kommt nicht hinterher
+    try{
+      this.sb.appendBuffer(this.queue.shift());
+    }catch(e){
+      if(e.name === 'QuotaExceededError') this.trim(true);
+      else this.fail('Videofehler: ' + e.message);
+    }
+  }
+
+  trim(force){
+    if(!this.sb || this.sb.updating) return;
+    const v = this.video;
+    if(v.buffered.length && (force || v.currentTime - v.buffered.start(0) > 30)){
+      try{ this.sb.remove(0, Math.max(0, v.currentTime - 10)); }catch(e){}
+    }
+  }
+
+  keepLive(){
+    const v = this.video;
+    if(!v.buffered.length) return;
+    const end = v.buffered.end(v.buffered.length - 1);
+    if(v.currentTime < v.buffered.start(0) || end - v.currentTime > 1.5) v.currentTime = Math.max(v.buffered.start(0), end - 0.3);
+    if(v.paused) v.play().catch(() => {});
+    if(!this.playingReported && v.currentTime > 0){
+      this.playingReported = true;
+      if(this.cb.onPlaying) this.cb.onPlaying();
+    }
+    this.trim(false);
+  }
+}
+
+// ---- H.264-SPS: Bildgroesse auslesen ---------------------------------
+function parseSpsSize(sps){
+  try{
+    // Emulation-Prevention-Bytes entfernen
+    const b = [];
+    for(let i = 0; i < sps.length; i++){
+      if(i >= 2 && sps[i] === 3 && sps[i-1] === 0 && sps[i-2] === 0) continue;
+      b.push(sps[i]);
+    }
+    let pos = 8; // NAL-Header ueberspringen
+    const bit = () => { const v = (b[pos >> 3] >> (7 - (pos & 7))) & 1; pos++; return v; };
+    const bits = (n) => { let v = 0; for(let i = 0; i < n; i++) v = (v << 1) | bit(); return v; };
+    const ue = () => { let z = 0; while(bit() === 0 && z < 32) z++; return (1 << z) - 1 + bits(z); };
+    const se = () => { const v = ue(); return (v & 1) ? (v + 1) / 2 : -v / 2; };
+    const profile = bits(8); bits(8); bits(8); ue();
+    let chroma = 1;
+    if([100, 110, 122, 244, 44, 83, 86, 118, 128, 138, 139, 134, 135].includes(profile)){
+      chroma = ue();
+      if(chroma === 3) bit();
+      ue(); ue(); bit();
+      if(bit()){
+        for(let i = 0; i < (chroma !== 3 ? 8 : 12); i++){
+          if(bit()){
+            let last = 8, next = 8; const size = i < 6 ? 16 : 64;
+            for(let j = 0; j < size; j++){ if(next !== 0){ next = (last + se() + 256) % 256; } last = next === 0 ? last : next; }
+          }
+        }
+      }
+    }
+    ue();
+    const pocType = ue();
+    if(pocType === 0) ue();
+    else if(pocType === 1){ bit(); se(); se(); const n = ue(); for(let i = 0; i < n; i++) se(); }
+    ue(); bit();
+    const wMbs = ue() + 1, hMapUnits = ue() + 1;
+    const frameMbsOnly = bit();
+    if(!frameMbsOnly) bit();
+    bit();
+    let cl = 0, cr = 0, ct = 0, cbm = 0;
+    if(bit()){ cl = ue(); cr = ue(); ct = ue(); cbm = ue(); }
+    const subW = (chroma === 1 || chroma === 2) ? 2 : 1, subH = (chroma === 1) ? 2 : 1;
+    const w = wMbs * 16 - (cl + cr) * subW;
+    const h = (2 - frameMbsOnly) * hMapUnits * 16 - (ct + cbm) * subH * (2 - frameMbsOnly);
+    if(w > 0 && h > 0 && w < 10000 && h < 10000) return {w, h};
+  }catch(e){}
+  return null;
+}
+
+// ---- fragmentiertes MP4 (ISO BMFF) ------------------------------------
+function mp4Box(type, ...parts){
+  let len = 8; parts.forEach(p => len += p.length);
+  const out = new Uint8Array(len);
+  out[0] = len >>> 24; out[1] = (len >>> 16) & 255; out[2] = (len >>> 8) & 255; out[3] = len & 255;
+  for(let i = 0; i < 4; i++) out[4 + i] = type.charCodeAt(i);
+  let o = 8; parts.forEach(p => { out.set(p, o); o += p.length; });
+  return out;
+}
+function u32(v){ return new Uint8Array([v >>> 24, (v >>> 16) & 255, (v >>> 8) & 255, v & 255]); }
+function u16(v){ return new Uint8Array([(v >>> 8) & 255, v & 255]); }
+function bytes(...a){ return new Uint8Array(a); }
+function zeros(n){ return new Uint8Array(n); }
+
+function mp4Init(sps, pps, w, h){
+  const TS = 90000;
+  const matrix = new Uint8Array([0,1,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,1,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0, 64,0,0,0]);
+  const ftyp = mp4Box('ftyp', new TextEncoder().encode('isom'), u32(512), new TextEncoder().encode('isomiso2iso5avc1mp41'));
+  const mvhd = mp4Box('mvhd', u32(0), u32(0), u32(0), u32(TS), u32(0), u32(0x00010000), u16(0x0100), zeros(10), matrix, zeros(24), u32(2));
+  const tkhd = mp4Box('tkhd', u32(0x00000003), u32(0), u32(0), u32(1), u32(0), u32(0), zeros(8), u16(0), u16(0), u16(0), u16(0), matrix, u32(w << 16), u32(h << 16));
+  const mdhd = mp4Box('mdhd', u32(0), u32(0), u32(0), u32(TS), u32(0), u16(0x55c4), u16(0));
+  const hdlr = mp4Box('hdlr', u32(0), u32(0), new TextEncoder().encode('vide'), zeros(12), new TextEncoder().encode('VideoHandler\0'));
+  const vmhd = mp4Box('vmhd', u32(1), zeros(8));
+  const dref = mp4Box('dref', u32(0), u32(1), mp4Box('url ', u32(1)));
+  const dinf = mp4Box('dinf', dref);
+  const avcC = mp4Box('avcC', bytes(1, sps[1], sps[2], sps[3], 0xff, 0xe1), u16(sps.length), sps, bytes(1), u16(pps.length), pps);
+  const avc1 = mp4Box('avc1', zeros(6), u16(1), zeros(16), u16(w), u16(h), u32(0x00480000), u32(0x00480000), u32(0), u16(1), zeros(32), u16(0x18), u16(0xffff), avcC);
+  const stsd = mp4Box('stsd', u32(0), u32(1), avc1);
+  const stts = mp4Box('stts', u32(0), u32(0));
+  const stsc = mp4Box('stsc', u32(0), u32(0));
+  const stsz = mp4Box('stsz', u32(0), u32(0), u32(0));
+  const stco = mp4Box('stco', u32(0), u32(0));
+  const stbl = mp4Box('stbl', stsd, stts, stsc, stsz, stco);
+  const minf = mp4Box('minf', vmhd, dinf, stbl);
+  const mdia = mp4Box('mdia', mdhd, hdlr, minf);
+  const trak = mp4Box('trak', tkhd, mdia);
+  const trex = mp4Box('trex', u32(0), u32(1), u32(1), u32(0), u32(0), u32(0));
+  const mvex = mp4Box('mvex', trex);
+  const moov = mp4Box('moov', mvhd, trak, mvex);
+  const out = new Uint8Array(ftyp.length + moov.length);
+  out.set(ftyp, 0); out.set(moov, ftyp.length);
+  return out;
+}
+
+function mp4Fragment(seq, t, dur, data, key){
+  const hi = Math.floor(t / 0x100000000), lo = t >>> 0;
+  const mfhd = mp4Box('mfhd', u32(0), u32(seq));
+  const tfhd = mp4Box('tfhd', u32(0x00020000), u32(1));
+  const tfdt = mp4Box('tfdt', u32(0x01000000), u32(hi), u32(lo));
+  const flags = key ? 0x02000000 : 0x01010000;
+  // trun: data-offset, Dauer, Groesse, Flags je Sample
+  const trunLen = 8 + 4 + 4 + 4 + 12;
+  const trafLen = 8 + tfhd.length + tfdt.length + trunLen;
+  const moofLen = 8 + mfhd.length + trafLen;
+  const trun = mp4Box('trun', u32(0x00000701), u32(1), u32(moofLen + 8), u32(dur), u32(data.length), u32(flags));
+  const traf = mp4Box('traf', tfhd, tfdt, trun);
+  const moof = mp4Box('moof', mfhd, traf);
+  const mdat = mp4Box('mdat', data);
+  const out = new Uint8Array(moof.length + mdat.length);
+  out.set(moof, 0); out.set(mdat, moof.length);
+  return out;
+}
+
+async function extraCommand(printerId, extraId, action){
+  await fetch(`/api/printers/${printerId}/extras/${extraId}/command`, {
+    method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({action})
+  });
+}
+
+// v2.5.0: wie extraCommand(), fuer einen eigenstaendigen (nicht an einen
+// Drucker gebundenen) Schalter - siehe cardForStandaloneExtra().
+async function standaloneExtraCommand(extraId, action){
+  await fetch(`/api/standalone_extras/${extraId}/command`, {
+    method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({action})
+  });
+}
+
+function stateClass(state){
+  if(!state) return '';
+  const s = String(state).toUpperCase();
+  if(['RUNNING','PRINTING','WASHING','CURING','BUSY','OPERATIONAL'].includes(s)) return 'running';
+  if(['PAUSE','PAUSED'].includes(s)) return 'paused';
+  return '';
+}
+
+function formatRemaining(totalMinutes){
+  if(totalMinutes === undefined || totalMinutes === null) return '';
+  const mins = Math.max(0, Math.round(totalMinutes));
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  if(h > 0){
+    return `${h} h ${m} min verbleibend`;
+  }
+  return `${m} min verbleibend`;
+}
+
+// v2.1.0: rundet eine Temperaturangabe auf HOECHSTENS 2 Nachkommastellen
+// (weniger, falls die Zahl von sich aus glatt ist - "23" statt "23.00").
+// Manche Backends (v. a. Bambu-MQTT) liefern Temperaturen mit deutlich
+// mehr Nachkommastellen, als fuer die Anzeige sinnvoll ist.
+function formatTemp(v){
+  if(v === undefined || v === null) return '–';
+  const n = Math.round(v * 100) / 100;
+  return Number.isFinite(n) ? n : '–';
+}
+
+// v2.2.0: kleines Verlaufsdiagramm je Temperaturanzeige -----------------
+// Rein client-seitig im Browser-Speicher (kein Backend-Persistieren, kein
+// zusaetzlicher API-Endpunkt noetig) - fuellt sich aus den ohnehin schon
+// alle 2,5 Sekunden abgerufenen Status-Werten (siehe refresh()). Geht beim
+// Neuladen der Seite verloren, das ist fuer eine kleine "Trend"-Anzeige
+// bewusst in Ordnung (kein Anspruch auf dauerhafte Temperaturhistorie).
+const tempHistory = {}; // printerId -> { [feldname]: number[] }
+const TEMP_HISTORY_MAX_POINTS = 40; // ~100 Sekunden bei 2,5s-Poll-Takt
+
+function recordTempHistory(printerId, field, value){
+  if(value === undefined || value === null) return;
+  const n = Number(value);
+  if(!Number.isFinite(n)) return;
+  if(!tempHistory[printerId]) tempHistory[printerId] = {};
+  const bucket = tempHistory[printerId];
+  const arr = bucket[field] || (bucket[field] = []);
+  arr.push(n);
+  if(arr.length > TEMP_HISTORY_MAX_POINTS) arr.shift();
+}
+
+// Baut ein kleines Inline-SVG-Liniendiagramm aus den zuletzt erfassten
+// Werten - bewusst ohne externe Chart-Bibliothek (das Dashboard bleibt
+// eine einzelne Datei / PyInstaller-onefile-tauglich, siehe Kommentar am
+// Dateianfang). Liefert einen leeren String, solange weniger als 2 Punkte
+// vorliegen (noch keine sinnvolle Linie moeglich, z. B. direkt nach dem
+// Start des Dashboards).
+// v2.2.2: "cssClass" waehlt die Farbe der Linie aus (siehe CSS -
+// "temp-spark" = rot fuer Temperaturen, "humidity-spark" = blau fuer die
+// AMS-Luftfeuchtigkeit) - beide nutzen denselben currentColor-Mechanismus,
+// nur die jeweilige Klasse setzt eine andere Textfarbe.
+function sparklineSvg(values, cssClass){
+  if(!values || values.length < 2) return '';
+  const w = 54, h = 18, pad = 2;
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const range = (max - min) || 1; // vermeidet Division durch 0 bei konstanter Temperatur
+  const step = (w - pad * 2) / (values.length - 1);
+  const points = values.map((v, i) => {
+    const x = pad + i * step;
+    const y = h - pad - ((v - min) / range) * (h - pad * 2);
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  }).join(' ');
+  return `<svg class="${cssClass || 'temp-spark'}" viewBox="0 0 ${w} ${h}" width="${w}" height="${h}">` +
+         `<polyline points="${points}" fill="none" stroke="currentColor" stroke-width="1.5" ` +
+         `stroke-linejoin="round" stroke-linecap="round"/></svg>`;
+}
+
+// Gemeinsamer Baustein fuer alle Temperatur-Chips (Bambu/OctoPrint/
+// Creality/Ultimaker) - erfasst den aktuellen Wert in tempHistory UND
+// rendert Chip + Sparkline in einem Aufwasch, damit das nicht in jeder
+// Karten-Renderfunktion einzeln dupliziert werden muss.
+function tempChip(printerId, field, label, value){
+  recordTempHistory(printerId, field, value);
+  const history = (tempHistory[printerId] && tempHistory[printerId][field]) || [];
+  return `<div class="temp-chip">${label} <b>${formatTemp(value)}&deg;C</b>${sparklineSvg(history)}</div>`;
+}
+
+// v2.2.3: Woertliche Einordnung der Bambu-Feuchte-Stufe (1 = trocken/gut
+// bis 5 = feucht/schlecht - dieselbe Skala wie zuvor nur im Tooltip
+// genannt). NUTZER-FEEDBACK v2.2.2: der Rohwert allein ("4") war ohne
+// Hover auf den Massstab nicht als "eher schlecht" erkennbar - deshalb
+// jetzt ZUSAETZLICH als sichtbares Wort neben der Zahl, nicht nur im
+// Tooltip. "severity" steuert zusaetzlich die Ampelfarbe der Punkte
+// (siehe humidityScale()).
+const HUMIDITY_LEVELS = {
+  1: { label: 'trocken',      severity: 'good' },
+  2: { label: 'leicht feucht', severity: 'good' },
+  3: { label: 'mittel',       severity: 'mid'  },
+  4: { label: 'feucht',       severity: 'bad'  },
+  5: { label: 'sehr feucht',  severity: 'bad'  },
+};
+
+// v2.2.2 (erweitert in v2.2.3 um Ampelfarbe + Wort-Label): kleiner 1-5-
+// Massstab neben dem Feuchte-Rohwert, damit die Zahl allein eingeordnet
+// werden kann. Fuenf Punkte, gefuellt bis einschliesslich der aktuellen
+// Stufe UND in Ampelfarbe (gruen=trocken/gut, gelb=mittel, rot=feucht/
+// schlecht) statt einheitlich blau - damit "gut oder schlecht" auch ohne
+// Hover sofort erkennbar ist. Ein Tooltip nennt die Skala zusaetzlich in
+// Worten.
+function humidityScale(value){
+  if(value === undefined || value === null) return '';
+  const level = HUMIDITY_LEVELS[value];
+  const severity = level ? level.severity : '';
+  const dots = [1, 2, 3, 4, 5].map(i =>
+    `<span class="humidity-dot${i <= value ? ' filled ' + severity : ''}"></span>`
+  ).join('');
+  return `<span class="humidity-scale" title="Feuchte-Stufe: 1 = trocken/gut, 5 = feucht/schlecht">${dots}</span>`;
+}
+
+// v2.2.3: sichtbares Wort-Label ("trocken"/"feucht"/...) direkt neben dem
+// Zahlenwert, in derselben Ampelfarbe wie der Massstab - siehe
+// HUMIDITY_LEVELS oben fuer den Hintergrund dieser Ergaenzung.
+function humidityLabel(value){
+  const level = HUMIDITY_LEVELS[value];
+  if(!level) return '';
+  return `<span class="humidity-label ${level.severity}">${level.label}</span>`;
+}
+
+// v2.2.1: Chip fuer die AMS-Luftfeuchtigkeit - nutzt bewusst dieselbe
+// tempHistory-Infrastruktur wie tempChip() (generischer Werteverlauf,
+// nicht spezifisch fuer Temperaturen), da eine Sparkline hier identisch
+// funktioniert. Der Rohwert ist eine Bambu-eigene Stufe von 1 (trocken)
+// bis 5 (feucht), KEIN Prozentwert - daher ohne Einheit angezeigt, dafuer
+// seit v2.2.2 mit humidityScale() als Einordnungshilfe direkt daneben.
+// v2.2.2: Sparkline-Linie in Blau (eigene CSS-Klasse "humidity-spark"),
+// auf ausdruecklichen Nutzerwunsch von der roten Temperatur-Sparkline
+// unterschieden.
+// v2.2.7: Nutzer meldete bei einem H2S (AMS 2 Pro), dass der Drucker
+// selbst 44% Luftfeuchte anzeigt, das Dashboard aber nur die Stufe "1"
+// zeigte - fuer sich genommen nicht falsch, aber ohne die 1-5-Skala im
+// Kopf nicht einzuordnen. Recherche ergab: das AMS 2 Pro liefert
+// zusaetzlich zur Stufe ("humidity") den tatsaechlichen Prozentwert im
+// Feld "humidity_raw" (aeltere AMS-Einheiten liefern dieses Feld gar
+// nicht). Ist rawPercent vorhanden, wird JETZT der selbsterklaerende
+// Prozentwert als Hauptanzeige verwendet (und auch im Verlaufsdiagramm
+// aufgezeichnet) - Wort-Label und Ampel-Punkte bleiben dabei an der
+// vom Drucker gelieferten Stufe ("value") ausgerichtet, da nur diese
+// die vom Hersteller vorgesehene gut/mittel/schlecht-Einordnung traegt.
+// v2.2.12: Nutzer bemerkte eine widerspruechliche Anzeige zwischen zwei
+// Druckern - u. a. einen H2-Wert von 41% als "trocken", aber einen
+// X1-Wert von 24% als "feucht" (obwohl 24% RH fuer sich genommen eher
+// trockener wirkt als 41%). Ursache: Wort-Label und Ampel-Punkte wurden
+// bisher IMMER aus der 1-5-Stufe ("value") abgeleitet, auch wenn
+// zusaetzlich ein Prozentwert ("rawPercent") vorlag - beide Felder sind
+// aber laut Recherche (maziggy/bambuddy Issue #3140) NICHT notwendig
+// gleich skaliert: es gibt einen dokumentierten Bug/Eigenheit, wonach die
+// 1-5-Rohstufe je nach AMS-Generation in ANDERER Reihenfolge gemeldet
+// wird (mal 1=trocken...5=feucht, mal umgekehrt) - welche Richtung ein
+// konkretes Geraet tatsaechlich meldet, ist nicht zuverlaessig bekannt
+// und wird hier bewusst NICHT geraten (siehe UEBERGABE.md fuer die volle
+// Herleitung). Ist ein Prozentwert vorhanden, ist er die praezisere,
+// selbsterklaerende Angabe (kein Rate-Massstab noetig) - Wort-Label und
+// Punkte werden deshalb JETZT NUR NOCH angezeigt, wenn KEIN Prozentwert
+// vorliegt (aeltere AMS-Einheiten ohne humidity_raw). Damit widersprechen
+// sich Anzeige und Einordnung nicht mehr.
+function humidityChip(printerId, field, label, value, rawPercent){
+  const hasRaw = (rawPercent !== undefined && rawPercent !== null);
+  const recordedValue = hasRaw ? rawPercent : value;
+  recordTempHistory(printerId, field, recordedValue);
+  const history = (tempHistory[printerId] && tempHistory[printerId][field]) || [];
+  const display = hasRaw ? `${rawPercent}%` : ((value === undefined || value === null) ? '–' : value);
+  const levelKnown = !hasRaw && (value !== undefined && value !== null && HUMIDITY_LEVELS[value]);
+  return `<div class="temp-chip">${label} <b>${display}</b>${levelKnown ? humidityLabel(value) : ''}${levelKnown ? humidityScale(value) : ''}` +
+         `${sparklineSvg(history, 'humidity-spark')}</div>`;
+}
+
+// v2.2.16: Chip fuer einen MQTT-Extra-Sensor mit "display": "temperature"
+// oder "humidity" (siehe Backend-Feld in _validate_extra_fields()) -
+// nutzt bewusst dieselbe tempHistory/sparklineSvg-Infrastruktur wie
+// tempChip()/humidityChip() oben, damit ein eigener MQTT-Temperatur-
+// oder Feuchtesensor GENAUSO aussieht und sich GENAUSO verhaelt wie die
+// vom Drucker selbst gelieferten Werte (Nutzerwunsch: "genau wie die vom
+// Drucker uebermittelten Sensordaten"). Der Feld-Schluessel fuer
+// tempHistory ist "extra_<id>" - eigener Namensraum, kollidiert also
+// nicht mit den festen Feldern "nozzle"/"bed"/"chamber"/"ams_humidity_*".
+// Der Rohwert kommt als Text vom zweiten MQTT-Broker (ExtrasMqttManager)
+// und wird nur dann als Zahl behandelt/aufgezeichnet, wenn er sich auch
+// tatsaechlich in eine Zahl umwandeln laesst (z. B. "23.4") - ein
+// nicht-numerischer Sensorwert wird stattdessen unveraendert als Text
+// angezeigt, OHNE Sparkline (die braeuchte zwingend Zahlen).
+function extraChip(printerId, extra){
+  const field = 'extra_' + extra.id;
+  const raw = extra.value;
+  const num = (raw === undefined || raw === null || raw === '') ? NaN : Number(raw);
+  const isNumeric = Number.isFinite(num);
+  if(isNumeric) recordTempHistory(printerId, field, num);
+  const history = (tempHistory[printerId] && tempHistory[printerId][field]) || [];
+  const shown = isNumeric ? formatTemp(num) : ((raw === undefined || raw === null || raw === '') ? '–' : raw);
+  const unitSuffix = extra.unit ? extra.unit : '';
+  const sparkClass = (extra.display === 'humidity') ? 'humidity-spark' : 'temp-spark';
+  return `<div class="temp-chip">${extra.label} <b>${shown}${unitSuffix}</b>${isNumeric ? sparklineSvg(history, sparkClass) : ''}</div>`;
+}
+
+// Liefert die Chips ALLER Sensor-Extras eines Druckers, deren "display"
+// auf "temperature" oder "humidity" gesetzt ist - zum Einfuegen direkt in
+// die bestehende "Temperaturen"-Zeile jeder Karte (renderBambuCard etc.),
+// bzw. bei Formlabs (kein eigener Temperaturen-Bereich) fuer eine
+// eigens dafuer eingeblendete Zeile. renderExtras() unten blendet
+// dieselben Eintraege bewusst aus dem generischen "Sensoren & Schalter"-
+// Bereich aus, damit nichts doppelt erscheint.
+function extraTempChips(printerId, extras){
+  if(!extras || extras.length === 0) return '';
+  return extras
+    .filter(e => e.kind === 'sensor' && (e.display === 'temperature' || e.display === 'humidity'))
+    .map(e => extraChip(printerId, e))
+    .join('');
+}
+
+function renderAms(printerId, ams, amsUnits, bambuFamily){
+  if(!ams || ams.length === 0){
+    return '<div class="empty-ams">Kein AMS erkannt / keine Fach-Daten.</div>';
+  }
+  const slots = ams.map(t => {
+    const remain = (t.remain === undefined || t.remain === null || t.remain < 0) ? '–' : t.remain + '%';
+    const width = (t.remain && t.remain > 0) ? t.remain : 0;
+    return `<div class="ams-slot">
+      <div class="ams-swatch" style="background:${t.color}"></div>
+      <div class="ams-meta">${t.type}</div>
+      <div class="ams-track"><div class="ams-fill" style="width:${width}%; background:${t.color}"></div></div>
+      <div class="ams-remain">${remain}</div>
+    </div>`;
+  }).join('');
+  // v2.2.5: Bei der A1-Familie wird das "AMS Lite" verbaut, das (anders
+  // als das vollwertige AMS der X1-Serie) KEINEN Feuchtesensor besitzt.
+  // Auf ausdruecklichen Nutzerwunsch wird die Feuchteanzeige deshalb bei
+  // bambuFamily === 'a1' GRUNDSAETZLICH unterdrueckt - unabhaengig davon,
+  // ob/was das AMS Lite an "humidity"-Rohwert meldet (manche Firmware-
+  // Staende liefern dort einen bedeutungslosen Platzhalterwert statt gar
+  // kein Feld, siehe _apply_print_report() - der reine "Feld vorhanden?"-
+  // Filter unten reicht bei der A1-Familie also nicht aus). Analog zur
+  // bereits bestehenden Kammertemperatur-Ausblendung fuer A1 (v2.2.0).
+  const isA1 = bambuFamily === 'a1';
+  // v2.2.1: Luftfeuchtigkeit je AMS-Einheit, mit Verlaufsdiagramm - nur
+  // Einheiten mit tatsaechlich vorhandenem Wert werden angezeigt (manche
+  // AMS-Firmwarestaende liefern das Feld nicht, siehe _apply_print_report()).
+  // v2.2.7: Einheit auch anzeigen, wenn NUR humidity_raw (Prozentwert,
+  // AMS 2 Pro) vorhanden ist, ohne die aeltere Stufe "humidity".
+  const units = isA1 ? [] : (amsUnits || []).filter(u =>
+    (u.humidity !== undefined && u.humidity !== null) ||
+    (u.humidity_raw !== undefined && u.humidity_raw !== null)
+  );
+  const humidityRow = units.length
+    ? `<div class="temps ams-humidity-row">${units.map(u =>
+        humidityChip(printerId, `ams_humidity_${u.id}`, `Feuchte AMS ${u.id}`, u.humidity, u.humidity_raw)
+      ).join('')}</div>`
+    : '';
+  return slots + humidityRow;
+}
+
+function renderExtras(printerId, extras){
+  if(!extras || extras.length === 0) return '';
+  // v2.2.16: Sensoren mit "display": "temperature"/"humidity" erscheinen
+  // stattdessen direkt in der Temperaturen-Zeile (siehe extraTempChips())
+  // - hier ausblenden, damit sie nicht zusaetzlich ein zweites Mal im
+  // generischen "Sensoren & Schalter"-Bereich auftauchen. Schalter sind
+  // von dieser Unterscheidung nicht betroffen (kein "display"-Feld,
+  // bleiben immer hier).
+  const visible = extras.filter(e => !(e.kind === 'sensor' && (e.display === 'temperature' || e.display === 'humidity')));
+  if(visible.length === 0) return '';
+  return `<div class="extras-section">
+    <div class="field-label">Sensoren &amp; Schalter</div>
+    <div class="extras-row">
+      ${visible.map(e => {
+        if(e.kind === 'switch'){
+          return `<div class="extra-switch">
+            <span>${e.label}</span>
+            <button class="btn-mini" onclick="extraCommand('${printerId}','${e.id}','on')">Ein</button>
+            <button class="btn-mini off" onclick="extraCommand('${printerId}','${e.id}','off')">Aus</button>
+          </div>`;
+        }
+        // v2.5.1: zeigt jetzt IMMER ein Verlaufsdiagramm (Sparkline), nicht
+        // nur bei "display": "temperature"/"humidity" (siehe extraChip()
+        // oben, dieselbe tempHistory-Infrastruktur, eigener Feld-
+        // Namensraum "extra_<id>") - nur bei tatsaechlich numerischem Wert
+        // (ein Text-Sensorwert wird weiterhin ohne Diagramm angezeigt).
+        const raw = e.value;
+        const num = (raw === undefined || raw === null || raw === '') ? NaN : Number(raw);
+        const isNumeric = Number.isFinite(num);
+        if(isNumeric) recordTempHistory(printerId, 'extra_' + e.id, num);
+        const history = (tempHistory[printerId] && tempHistory[printerId]['extra_' + e.id]) || [];
+        const val = isNumeric ? formatTemp(num) : ((raw === undefined || raw === null || raw === '') ? '–' : raw);
+        return `<div class="extra-sensor"><span>${e.label}</span><b>${val}${e.unit ? ' ' + e.unit : ''}</b>${isNumeric ? sparklineSvg(history) : ''}</div>`;
+      }).join('')}
+    </div>
+  </div>`;
+}
+
+// MK6 v1.2.0: letzte Druckerliste aus refresh() - wird ohne erneuten
+// Netzwerk-Request fuer den Zuweisen-Dialog (openAssignModal()) genutzt,
+// damit dort eine aktuelle Auswahl an Ziel-Druckern zur Verfuegung steht.
+let lastPrinterList = [];
+
+// v2.3.0: zuletzt vom Server geladene Raumliste - analog zu lastPrinterList
+// fuer Stellen, die ohne erneuten Request darauf zugreifen (z. B. das
+// Zuweisen-Dropdown in refreshPrinterManageList()).
+let lastGroupList = [];
+// v2.3.0: wie lastGroupList, fuer renameGroup()/editRtspCamera() - dort
+// wird NICHT der Name/die URL als eingebetteter JS-String-Literal-Wert
+// ins onclick-Attribut geschrieben (koennte bei Anfuehrungszeichen im
+// Namen das HTML-Attribut vorzeitig beenden), sondern nur die ID - der
+// aktuelle Name/die URL wird beim Aufruf aus dieser Liste nachgeschlagen.
+let lastCamsList = [];
+
+// v2.5.0: wie lastCamsList, fuer eigenstaendige (nicht an einen Drucker
+// gebundene) MQTT-Sensoren/Schalter - siehe cardForStandaloneExtra() und
+// die Verwaltung im "MQTT-Geraete"-Abschnitt des Einstellungen-Modus
+// (renderMqttExtrasList()).
+let lastStandaloneExtrasList = [];
+
+function cardForPrinter(p){
+  if(p.type === 'octoprint') return renderOctoPrintCard(p);
+  if(p.type === 'formlabs' || p.type === 'formlabs_wash' || p.type === 'formlabs_cure') return renderFormlabsCard(p);
+  if(CREALITY_TYPES.includes(p.type)) return renderCrealityCard(p);
+  if(p.type === 'ultimaker') return renderUltimakerCard(p);
+  return renderBambuCard(p);
+}
+
+// v2.4.0: Kachel fuer eine externe RTSP-Kamera - erscheint (seit v2.4.0,
+// anstelle des vorherigen gemeinsamen "Kameras"-Knopfs/-Modals) direkt als
+// eigenes Grid-Element neben den Drucker-Karten, im jeweils zugewiesenen
+// Raum. Zeigt bewusst nur Name + Kamera-Symbol (keine Druckfunktionen).
+function cardForCamera(c){
+  return `
+    <div class="camera-card">
+      <div>
+        <span class="name">${c.name}</span>
+        <span class="type-badge">Kamera</span>
+      </div>
+      <div class="cam-icon" title="Kamera anzeigen" onclick="openExternalCam('${c.id}')">${CAM_ICON}</div>
+    </div>`;
+}
+
+// v2.5.0: Kachel fuer einen eigenstaendigen (nicht an einen Drucker
+// gebundenen) MQTT-Sensor/Schalter - erscheint, analog zur Kamera-Kachel,
+// direkt als eigenes Grid-Element im jeweils zugewiesenen Raum. Ein
+// Schalter zeigt dieselben Ein/Aus-Knoepfe wie im druckergebundenen Fall
+// (siehe renderExtras()), nur ueber standaloneExtraCommand() statt
+// extraCommand() (anderer, druckerunabhaengiger Endpunkt).
+function cardForStandaloneExtra(e){
+  if(e.kind === 'switch'){
+    return `
+      <div class="camera-card">
+        <div>
+          <span class="name">${e.label}</span>
+          <span class="type-badge">Schalter</span>
+        </div>
+        <div>
+          <button class="btn-mini" onclick="standaloneExtraCommand('${e.id}','on')">Ein</button>
+          <button class="btn-mini off" onclick="standaloneExtraCommand('${e.id}','off')">Aus</button>
+        </div>
+      </div>`;
+  }
+  // v2.5.1: Verlaufsdiagramm (Sparkline) auch fuer eigenstaendige Sensoren
+  // - dieselbe tempHistory-Infrastruktur wie bei druckergebundenen Extras
+  // (renderExtras()), nur unter einem eigenen, druckerunabhaengigen
+  // "Pseudo-Drucker"-Schluessel "__standalone__" einsortiert, damit sich
+  // eigenstaendige und druckergebundene Sensor-IDs nicht ueberschneiden
+  // koennen.
+  const raw = e.value;
+  const num = (raw === undefined || raw === null || raw === '') ? NaN : Number(raw);
+  const isNumeric = Number.isFinite(num);
+  if(isNumeric) recordTempHistory('__standalone__', 'extra_' + e.id, num);
+  const history = (tempHistory['__standalone__'] && tempHistory['__standalone__']['extra_' + e.id]) || [];
+  const val = isNumeric ? formatTemp(num) : ((raw === undefined || raw === null || raw === '') ? '–' : raw);
+  return `
+    <div class="camera-card">
+      <div>
+        <span class="name">${e.label}</span>
+        <span class="type-badge">Sensor</span>
+      </div>
+      <div><b>${val}${e.unit ? ' ' + e.unit : ''}</b>${isNumeric ? sparklineSvg(history) : ''}</div>
+    </div>`;
+}
+
+// RP2350: alle Daten fuer die Bedienansicht in EINER Anfrage (/api/dashboard)
+// statt vier parallelen - schont die begrenzten Verbindungen des Boards.
+let refreshRunning = false;
+async function refresh(){
+  if(refreshRunning) return;
+  refreshRunning = true;
+  let dash;
+  try{
+    const res = await fetch('/api/dashboard', {cache: 'no-store'});
+    if(!res.ok) throw new Error('HTTP ' + res.status);
+    dash = await res.json();
+  } catch(e){
+    refreshRunning = false;
+    return;   // naechster Versuch beim naechsten Intervall
+  }
+  refreshRunning = false;
+  const printers = dash.printers || [], groups = dash.groups || [], cams = dash.cams || [], standaloneExtras = dash.standalone_extras || [];
+  lastPrinterList = printers;
+  lastGroupList = groups;
+  lastCamsList = cams;
+  lastStandaloneExtrasList = standaloneExtras;
+  if(settingsMode) return;
+  const list = document.getElementById('printerList');
+
+  if(printers.length === 0 && cams.length === 0 && standaloneExtras.length === 0){
+    list.innerHTML = `<div class="empty-state">
+      Noch keine Drucker hinterlegt.
+      <div><button class="btn" onclick="enterSettingsMode()">+ Drucker hinzufuegen</button></div>
+    </div>`;
+    return;
+  }
+
+  const byOrder = (a, b) => (a.order || 0) - (b.order || 0);
+  if(groups.length === 0){
+    list.innerHTML = printers.slice().sort(byOrder).map(cardForPrinter).join('') +
+                      cams.slice().sort(byOrder).map(cardForCamera).join('') +
+                      standaloneExtras.slice().sort(byOrder).map(cardForStandaloneExtra).join('');
+    return;
+  }
+  const printersByGroup = {};
+  printers.forEach(p => {
+    const gid = p.group_id || '__none__';
+    (printersByGroup[gid] = printersByGroup[gid] || []).push(p);
+  });
+  const camsByGroup = {};
+  cams.forEach(c => {
+    const gid = c.group_id || '__none__';
+    (camsByGroup[gid] = camsByGroup[gid] || []).push(c);
+  });
+  const standaloneByGroup = {};
+  standaloneExtras.forEach(e => {
+    const gid = e.group_id || '__none__';
+    (standaloneByGroup[gid] = standaloneByGroup[gid] || []).push(e);
+  });
+  let html = '';
+  groups.forEach(g => {
+    const pMembers = (printersByGroup[g.id] || []).slice().sort(byOrder);
+    const cMembers = (camsByGroup[g.id] || []).slice().sort(byOrder);
+    const eMembers = (standaloneByGroup[g.id] || []).slice().sort(byOrder);
+    if(pMembers.length === 0 && cMembers.length === 0 && eMembers.length === 0) return;
+    html += `<div class="room-header">${g.name}</div>`;
+    html += `<div class="room-group">${pMembers.map(cardForPrinter).join('')}${cMembers.map(cardForCamera).join('')}${eMembers.map(cardForStandaloneExtra).join('')}</div>`;
+  });
+  const pUngrouped = (printersByGroup['__none__'] || []).slice().sort(byOrder);
+  const cUngrouped = (camsByGroup['__none__'] || []).slice().sort(byOrder);
+  const eUngrouped = (standaloneByGroup['__none__'] || []).slice().sort(byOrder);
+  if(pUngrouped.length || cUngrouped.length || eUngrouped.length){
+    html += `<div class="room-header">Ohne Raum</div>`;
+    html += `<div class="room-group">${pUngrouped.map(cardForPrinter).join('')}${cUngrouped.map(cardForCamera).join('')}${eUngrouped.map(cardForStandaloneExtra).join('')}</div>`;
+  }
+  list.innerHTML = html;
+}
+
+// v2.5.2: Hinweis, wenn die MQTT-Verbindung zu diesem Bambu-Drucker
+// gerade nicht steht ("connected": false) - vorher blieben die zuletzt
+// empfangenen Duese-/Bett-/Kammer-Werte beim Verbindungsabbruch
+// UNVERAENDERT stehen (siehe PrinterConnection._on_disconnect() in
+// app.py - setzt bewusst nur "connected", nicht die einzelnen
+// Messwerte, zurueck), ohne das irgendwo kenntlich zu machen. Gemeldeter
+// Fall: Status-Punkt dauerhaft rot, Temperaturen wirkten trotzdem wie
+// "live", weil es sich um eingefrorene alte Werte handelte - die Kamera
+// (voellig unabhaengig von dieser MQTT-Verbindung, siehe
+// bambu_rtsp_mjpeg_generator()) zeigte parallel ein echtes Live-Bild,
+// was den Eindruck "der Drucker ist doch erreichbar" verstaerkte.
+function renderBambuCard(p){
+  const online = p.connected;
+  const pct = p.progress || 0;
+  const remMin = formatRemaining(p.remaining_min);
+  return `
+    <div class="printer-card">
+      <div class="card-head">
+        <div>
+          <span class="status-dot ${online ? 'online' : ''}"></span>
+          <span class="name">${p.name}</span>
+          <span class="ip">${p.ip}</span>
+          <span class="type-badge">Bambu Lab</span>
+        </div>
+        <div class="head-right">
+          <span class="state-badge ${stateClass(p.gcode_state)}">${p.gcode_state || 'UNKNOWN'}</span>
+          <div class="cam-icon" title="Kamera anzeigen" onclick="openCam('${p.id}')">${CAM_ICON}</div>
+        </div>
+      </div>
+      <div class="card-body">
+        <div>
+          <div class="field-label">Aktuelle Datei</div>
+          <div class="file-name">${p.file_name || '-'} ${remMin ? ' &middot; ' + remMin : ''}</div>
+
+          <div class="field-label">Fortschritt</div>
+          <div class="progress-row">
+            <div class="progress-track"><div class="progress-fill" style="width:${pct}%"></div></div>
+            <div class="progress-pct">${pct}%</div>
+          </div>
+
+          <div class="field-label">Temperaturen</div>
+          ${online ? '' : `<div class="hint-text" style="margin-top:0;">
+            Nicht verbunden - die folgenden Werte sind die zuletzt bekannten
+            ${p.last_update ? '(Stand ' + p.last_update + ')' : ''}, KEINE
+            Live-Daten mehr.
+          </div>`}
+          <div class="temps">
+            ${p.bambu_family === 'a1' ? '' : tempChip(p.id, 'chamber', 'Kammer', p.chamber_temp)}
+            ${tempChip(p.id, 'nozzle', 'Duese', p.nozzle_temp)}
+            ${tempChip(p.id, 'bed', 'Bett', p.bed_temp)}
+            ${extraTempChips(p.id, p.extras)}
+          </div>
+        </div>
+        <div>
+          <div class="ams-title">AMS / Filament</div>
+          ${renderAms(p.id, p.ams, p.ams_units, p.bambu_family)}
+          ${renderDropZone(p.id)}
+        </div>
+      </div>
+      ${renderExtras(p.id, p.extras)}
+    </div>`;
+}
+
+function renderDropZone(printerId){
+  return `
+    <div class="drop-zone" id="dz-${printerId}"
+         ondragover="dzDragOver(event)"
+         ondragleave="dzDragLeave(event)"
+         ondrop="dzDrop(event,'${printerId}')">
+      Fertig gesclicte .gcode.3mf-Datei hier ablegen zum Drucken
+      <div class="dz-hint">Erfordert Developer Mode / LAN-Modus am Drucker</div>
+    </div>`;
+}
+
+function dzDragOver(ev){
+  ev.preventDefault();
+  ev.currentTarget.classList.add('dragover');
+}
+function dzDragLeave(ev){
+  ev.currentTarget.classList.remove('dragover');
+}
+
+// ----------------------------------------------------------------------
+// RP2350: Druckauftrag per Drag & Drop.
+// Das Board hat keinen Platz, um eine .gcode.3mf-Datei zwischenzuspeichern.
+// Deshalb wertet jetzt der BROWSER die Datei aus (Filamente, Plate 1,
+// AMS-Vorschlag - dieselbe Logik wie preview_print()/_find_matching_tray()
+// im Original), und erst nach "Drucken starten" wird die Datei in einem
+// Rutsch hochgeladen; das Board reicht sie dabei direkt per FTPS an den
+// Drucker weiter.
+// ----------------------------------------------------------------------
+let amsModalPrinterId = null;
+let amsModalTotalFilaments = 0;
+let amsModalFile = null;
+let amsModalBusy = false;
+
+// werkzeug.utils.secure_filename() nachgebaut (gleiche Dateinamen wie bisher)
+function secureFilename(name){
+  let s = (name || '').normalize('NFKD').replace(/[^\x00-\x7F]/g, '');
+  s = s.replace(/[\/\\]/g, ' ');
+  s = s.split(/\s+/).filter(Boolean).join('_');
+  s = s.replace(/[^A-Za-z0-9_.-]/g, '');
+  return s.replace(/^[._]+|[._]+$/g, '');
+}
+
+// ---- ZIP-Lesen (3mf ist ein ZIP-Container) ----------------------------
+async function zipEntries(file){
+  const tailLen = Math.min(file.size, 65557);
+  const tail = new DataView(await file.slice(file.size - tailLen).arrayBuffer());
+  let eocd = -1;
+  for(let i = tailLen - 22; i >= 0; i--){
+    if(tail.getUint32(i, true) === 0x06054b50){ eocd = i; break; }
+  }
+  if(eocd < 0) throw new Error('keine gueltige ZIP/3mf-Datei');
+  let cdCount = tail.getUint16(eocd + 10, true);
+  let cdSize = tail.getUint32(eocd + 12, true);
+  let cdOff = tail.getUint32(eocd + 16, true);
+  if(cdOff === 0xffffffff || cdCount === 0xffff){
+    // ZIP64-End-of-Central-Directory-Locator
+    const loc = eocd - 20;
+    if(loc >= 0 && tail.getUint32(loc, true) === 0x07064b50){
+      const z64off = Number(tail.getBigUint64(loc + 8, true));
+      const z = new DataView(await file.slice(z64off, z64off + 56).arrayBuffer());
+      cdCount = Number(z.getBigUint64(32, true));
+      cdSize = Number(z.getBigUint64(40, true));
+      cdOff = Number(z.getBigUint64(48, true));
+    }
+  }
+  const cd = new DataView(await file.slice(cdOff, cdOff + cdSize).arrayBuffer());
+  const out = {};
+  let p = 0;
+  const dec = new TextDecoder();
+  for(let n = 0; n < cdCount && p + 46 <= cd.byteLength; n++){
+    if(cd.getUint32(p, true) !== 0x02014b50) break;
+    const method = cd.getUint16(p + 10, true);
+    let csize = cd.getUint32(p + 20, true);
+    let usize = cd.getUint32(p + 24, true);
+    const nlen = cd.getUint16(p + 28, true), xlen = cd.getUint16(p + 30, true), clen = cd.getUint16(p + 32, true);
+    let lho = cd.getUint32(p + 42, true);
+    const name = dec.decode(new Uint8Array(cd.buffer, cd.byteOffset + p + 46, nlen));
+    // ZIP64-Zusatzfeld
+    let x = p + 46 + nlen;
+    const xend = x + xlen;
+    while(x + 4 <= xend){
+      const id = cd.getUint16(x, true), sz = cd.getUint16(x + 2, true);
+      if(id === 1){
+        let q = x + 4;
+        if(usize === 0xffffffff){ usize = Number(cd.getBigUint64(q, true)); q += 8; }
+        if(csize === 0xffffffff){ csize = Number(cd.getBigUint64(q, true)); q += 8; }
+        if(lho === 0xffffffff){ lho = Number(cd.getBigUint64(q, true)); q += 8; }
+      }
+      x += 4 + sz;
+    }
+    out[name] = {method, csize, usize, lho};
+    p += 46 + nlen + xlen + clen;
+  }
+  return out;
+}
+
+async function zipRead(file, entry){
+  const lh = new DataView(await file.slice(entry.lho, entry.lho + 30).arrayBuffer());
+  const start = entry.lho + 30 + lh.getUint16(26, true) + lh.getUint16(28, true);
+  const blob = file.slice(start, start + entry.csize);
+  if(entry.method === 0) return new Uint8Array(await blob.arrayBuffer());
+  if(entry.method !== 8) throw new Error('nicht unterstuetzte ZIP-Kompression');
+  if(typeof DecompressionStream === 'undefined') throw new Error('Browser zu alt (DecompressionStream fehlt)');
+  const ds = blob.stream().pipeThrough(new DecompressionStream('deflate-raw'));
+  return new Uint8Array(await new Response(ds).arrayBuffer());
+}
+
+// ---- 3mf auswerten (wie _parse_3mf_filaments()) -----------------------
+function normalizeHex(v){
+  if(typeof v !== 'string') return '';
+  const s = v.trim().replace(/^#+/, '').toUpperCase();
+  return s.length >= 6 ? s.substring(0, 6) : '';
+}
+
+async function parse3mf(file){
+  const res = {filaments: [], total: 0};
+  const entries = await zipEntries(file);
+  const ps = entries['Metadata/project_settings.config'];
+  if(!ps) return res;
+  let cfg;
+  try{ cfg = JSON.parse(new TextDecoder().decode(await zipRead(file, ps))); }catch(e){ return res; }
+  const colours = cfg.filament_colour, types = Array.isArray(cfg.filament_type) ? cfg.filament_type : [];
+  if(!Array.isArray(colours) || !colours.length) return res;
+  const all = colours.map((c, i) => ({index: i, color: normalizeHex(c), type: String(types[i] || '').trim().toUpperCase()}));
+  res.total = all.length;
+  let used = null;
+  const si = entries['Metadata/slice_info.config'];
+  if(si){
+    try{
+      const xml = new DOMParser().parseFromString(new TextDecoder().decode(await zipRead(file, si)), 'application/xml');
+      for(const plate of xml.querySelectorAll('plate')){
+        let idx = null;
+        for(const m of plate.children){ if(m.tagName === 'metadata' && m.getAttribute('key') === 'index'){ idx = m.getAttribute('value'); break; } }
+        if(idx !== '1') continue;
+        const set = new Set();
+        for(const f of plate.children){
+          if(f.tagName !== 'filament') continue;
+          const id = parseInt(f.getAttribute('id'), 10);
+          if(!isNaN(id)) set.add(id - 1);   // 1-basiert -> 0-basiert
+        }
+        used = set.size ? set : null;
+        break;
+      }
+    }catch(e){ used = null; }
+  }
+  if(used){
+    const filtered = all.filter(f => used.has(f.index));
+    if(filtered.length){ res.filaments = filtered; return res; }
+  }
+  res.filaments = all;
+  return res;
+}
+
+// ---- AMS-Zuordnung (wie im Original, unveraenderte Regeln) -----------
+function slotToFlatIndex(slot){
+  const m = /^(\d+)-(\d+)$/.exec(slot || '');
+  if(!m) return -1;
+  const unit = parseInt(m[1], 10), tray = parseInt(m[2], 10);
+  return unit >= 128 ? unit + tray : unit * 4 + tray;
+}
+function typesCompatible(want, tray){
+  if(!want || !tray) return true;
+  if(want === tray) return true;
+  const wi = want.indexOf('-'), ti = tray.indexOf('-');
+  const wb = wi < 0 ? want : want.substring(0, wi), ws = wi < 0 ? '' : want.substring(wi + 1);
+  const tb = ti < 0 ? tray : tray.substring(0, ti), ts = ti < 0 ? '' : tray.substring(ti + 1);
+  if(ws !== ts) return false;
+  return tb.includes(wb) || wb.includes(tb);
+}
+function colorDistance(a, b){
+  const p = (h, i) => parseInt(h.substring(i, i + 2), 16);
+  const ar = p(a, 0), ag = p(a, 2), ab = p(a, 4), br = p(b, 0), bg = p(b, 2), bb = p(b, 4);
+  if([ar, ag, ab, br, bg, bb].some(isNaN)) return 1e9;
+  return Math.floor(Math.sqrt((ar - br) ** 2 + (ag - bg) ** 2 + (ab - bb) ** 2));
+}
+const COLOR_MATCH_TOLERANCE = 30;
+function findMatchingTray(fil, trays, used){
+  if(!fil.color) return null;
+  let best = null, bestD = null;
+  for(const t of trays){
+    if(!t.slot || used.has(t.slot)) continue;
+    const tc = normalizeHex(t.color);
+    if(!tc) continue;
+    const d = colorDistance(fil.color, tc);
+    if(d > COLOR_MATCH_TOLERANCE) continue;
+    if(!typesCompatible(fil.type, String(t.type || '').trim().toUpperCase())) continue;
+    if(best === null || d < bestD){ best = t; bestD = d; }
+  }
+  return best;
+}
+
+function buildPreview(printer, parsed){
+  const raw = (printer && printer.ams) || [];
+  const trays = raw.map(t => ({flat_index: slotToFlatIndex(t.slot), slot: t.slot, type: t.type,
+                               color: normalizeHex(t.color) || '666666', remain: t.remain}));
+  const used = new Set();
+  const filaments = parsed.filaments.map(f => {
+    const best = findMatchingTray(f, raw, used);
+    let sug = -1;
+    if(best){ used.add(best.slot); sug = slotToFlatIndex(best.slot); }
+    return {index: f.index, color: f.color || '666666', type: f.type, suggested_tray: sug};
+  });
+  return {filaments, ams_trays: trays, total_filaments: parsed.total};
+}
+
+async function dzDrop(ev, printerId){
+  ev.preventDefault();
+  const zone = ev.currentTarget;
+  zone.classList.remove('dragover');
+  const files = ev.dataTransfer.files;
+  if(!files || files.length === 0) return;
+  const file = files[0];
+  if(!file.name.toLowerCase().endsWith('.gcode.3mf')){
+    showToast('Nur .gcode.3mf-Dateien werden unterstuetzt.', 'err');
+    return;
+  }
+  const p = lastPrinterList.find(x => x.id === printerId);
+  if(p && PRINTER_BUSY_STATES_JS.includes(String(p.gcode_state || '').toUpperCase())){
+    showToast('Drucker ist beschaeftigt (' + p.gcode_state + ') - diese Version hat keine Warteschlange. Bitte warten, bis der aktuelle Druck fertig ist.', 'err');
+    return;
+  }
+  zone.classList.add('uploading');
+  try{
+    let parsed = {filaments: [], total: 0};
+    try{ parsed = await parse3mf(file); }
+    catch(e){ showToast('Datei konnte nicht ausgewertet werden (' + e.message + ') - Druck ohne AMS-Zuordnung moeglich.', 'err'); }
+    const preview = buildPreview(p, parsed);
+    openAmsModal(printerId, file, preview);
+  } finally {
+    zone.classList.remove('uploading');
+  }
+}
+
+const PRINTER_BUSY_STATES_JS = ['RUNNING','PRINTING','WASHING','CURING','BUSY','OPERATIONAL','PAUSE','PAUSED'];
+
+function openAmsModal(printerId, file, data){
+  amsModalPrinterId = printerId;
+  amsModalFile = file;
+  amsModalTotalFilaments = data.total_filaments || (data.filaments ? data.filaments.length : 0);
+  document.getElementById('amsModalFilename').textContent = secureFilename(file.name) + '  (' + formatBytes(file.size) + ')';
+  resetAmsProgress();
+  const rows = document.getElementById('amsModalRows');
+  if(!data.filaments || data.filaments.length === 0){
+    rows.innerHTML = `<div class="hint-text">Konnte keine Filament-Infos aus der Datei lesen - der Druck kann ohne AMS-Zuordnung (externe Spule) gestartet werden.</div>`;
+  } else if(!data.ams_trays || data.ams_trays.length === 0){
+    rows.innerHTML = `<div class="hint-text">Keine aktuellen AMS-Fach-Daten vom Drucker verfuegbar - der Druck kann ohne automatische Zuordnung gestartet werden (am Display manuell waehlen).</div>`
+      + data.filaments.map((f, i) => amsRowHtml(f, i, [])).join('');
+  } else {
+    rows.innerHTML = data.filaments.map((f, i) => amsRowHtml(f, i, data.ams_trays)).join('');
+  }
+  document.getElementById('amsModal').classList.add('show');
+}
+
+async function cancelAmsModal(){
+  if(amsModalBusy && amsXhr){ try{ amsXhr.abort(); }catch(e){} }
+  closeAmsModal();
+  amsModalPrinterId = null; amsModalFile = null; amsModalTotalFilaments = 0;
+}
+
+let amsXhr = null;
+
+// Datei per XMLHttpRequest hochladen (Fortschritt sichtbar). Liefert {status, data}.
+function xhrUpload(url, file, onProgress){
+  return new Promise((resolve) => {
+    const xhr = new XMLHttpRequest();
+    amsXhr = xhr;
+    xhr.open('POST', url);
+    xhr.setRequestHeader('Content-Type', 'application/octet-stream');
+    xhr.upload.onprogress = (e) => { if(e.lengthComputable && onProgress) onProgress(e.loaded, e.total); };
+    xhr.onload = () => {
+      let data = {};
+      try{ data = JSON.parse(xhr.responseText); }catch(e){ data = {error: xhr.responseText || ('HTTP ' + xhr.status)}; }
+      resolve({status: xhr.status, data});
+    };
+    xhr.onerror = () => resolve({status: 0, data: {error: 'Verbindung zum Board waehrend des Uploads abgebrochen.'}});
+    xhr.onabort = () => resolve({status: 0, data: {error: 'Abgebrochen.'}});
+    xhr.send(file);
+  });
+}
+
+async function postJson(url, body){
+  const res = await fetch(url, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
+  let data = {};
+  try{ data = await res.json(); }catch(e){ data = {error: 'HTTP ' + res.status}; }
+  return {ok: res.ok, status: res.status, data};
+}
+
+async function confirmAmsModal(){
+  const printerId = amsModalPrinterId, file = amsModalFile;
+  if(!printerId || !file) return;
+  const rows = document.querySelectorAll('#amsModalRows .ams-row');
+  // v1.6.2: VOLLSTAENDIG grosses Array, Position = originale Filament-ID
+  let mapping = null;
+  if(rows.length){
+    mapping = new Array(amsModalTotalFilaments || rows.length).fill(-1);
+    rows.forEach(row => {
+      const i = row.dataset.filamentIndex;
+      const trueIndex = parseInt(row.dataset.trueIndex, 10);
+      const suggested = parseInt(row.dataset.suggested, 10);
+      const chosen = row.querySelector(`input[name="ams-choice-${i}"]:checked`).value;
+      const value = (chosen === 'suggested') ? suggested : parseInt(document.getElementById('ams-other-' + i).value, 10);
+      if(!Number.isNaN(trueIndex) && trueIndex >= 0 && trueIndex < mapping.length) mapping[trueIndex] = value;
+    });
+  }
+  const btn = document.getElementById('amsModalConfirmBtn');
+  btn.disabled = true; btn.textContent = 'Wird gesendet ...';
+  amsModalBusy = true;
+  const p = lastPrinterList.find(x => x.id === printerId);
+  const known = (p && p.bambu_family === 'a1') ? 'a1' : 'x1';
+  const other = known === 'x1' ? 'a1' : 'x1';
+  // wie _ftps_upload(): bis zu 3 Versuche, Profile abwechselnd
+  const pattern = [known, other, known];
+  const attempts = [];
+  const name = secureFilename(file.name);
+  for(let a = 0; a < 3; a++){
+    if(!amsModalFile) return;   // abgebrochen
+    setAmsProgress(0, `Verbinde mit dem Drucker (Versuch ${a + 1}, Profil ${pattern[a]}) ...`);
+    const st = await postJson('/api/printers/' + printerId + '/print/bambu/start',
+                              {name, size: file.size, mapping, profile: pattern[a]});
+    if(!st.ok){
+      attempts.push(`Versuch ${a + 1} (Profil ${pattern[a]}): ${st.data.error || 'Fehler'}`);
+      if(st.data.code === '553' || st.status === 400 || st.status === 409) break;
+      await new Promise(r => setTimeout(r, 1500 * (a + 1)));
+      continue;
+    }
+    const slot = st.data.slot;
+    const up = await xhrUpload('/api/printers/' + printerId + '/print/bambu/upload?slot=' + encodeURIComponent(slot), file,
+      (sent, total) => {
+        const pct = Math.floor(sent * 100 / total);
+        setAmsProgress(pct, sent >= total ? 'Datei uebertragen - warte auf Bestaetigung des Druckers und starte den Druck ...'
+                                          : `Wird auf den Drucker geladen ... ${pct}% (${formatBytes(sent)} / ${formatBytes(total)})`);
+      });
+    if(up.status === 200 && up.data.ok){
+      setAmsProgress(100, 'Fertig.');
+      const ams = up.data.ams;
+      if(ams && ams.total > 0) showToast(`Druckauftrag gesendet (${ams.matched}/${ams.total} Filamente AMS-zugeordnet).`, 'ok');
+      else showToast('Druckauftrag gesendet (ohne AMS-Zuordnung).', 'ok');
+      amsModalBusy = false;
+      amsModalPrinterId = null; amsModalFile = null; amsModalTotalFilaments = 0;
+      closeAmsModal();
+      return;
+    }
+    attempts.push(`Versuch ${a + 1} (Profil ${pattern[a]}): ${up.data.error || 'Fehler'}`);
+    if(!amsModalFile || (up.data.error || '').startsWith('Keine aktive MQTT')) break;
+    await new Promise(r => setTimeout(r, 1500 * (a + 1)));
+  }
+  amsModalBusy = false;
+  resetAmsProgress();
+  // Datei + Zuordnung bleiben erhalten - "Drucken starten" erneut moeglich
+  showToast('Druckauftrag konnte nicht gesendet werden:\n' + attempts.join('\n'), 'err');
+}
+
+// ---- Ultimaker ---------------------------------------------------------
+async function dzDropUltimaker(ev, printerId){
+  ev.preventDefault();
+  const zone = ev.currentTarget;
+  zone.classList.remove('dragover');
+  const files = ev.dataTransfer.files;
+  if(!files || files.length === 0) return;
+  const file = files[0];
+  if(!file.name.toLowerCase().endsWith('.gcode')){
+    showToast('Nur fertig gesclicte .gcode-Dateien werden unterstuetzt.', 'err');
+    return;
+  }
+  zone.classList.add('uploading');
+  try{
+    const st = await postJson('/api/printers/' + printerId + '/ultimaker/print/start', {name: secureFilename(file.name), size: file.size});
+    if(!st.ok){ showToast(st.data.error || 'Fehler beim Senden des Druckauftrags.', 'err'); return; }
+    const status = zone.querySelector('.dz-status') || zone.appendChild(Object.assign(document.createElement('div'), {className: 'dz-status'}));
+    const up = await xhrUpload('/api/printers/' + printerId + '/ultimaker/print/upload?slot=' + encodeURIComponent(st.data.slot), file,
+      (sent, total) => { status.textContent = `Wird gesendet ... ${Math.floor(sent * 100 / total)}%`; });
+    if(up.status === 200 && up.data.ok) showToast('Druckauftrag gesendet.', 'ok');
+    else showToast(up.data.error || 'Fehler beim Senden des Druckauftrags.', 'err');
+  } catch(e){
+    showToast('Netzwerkfehler beim Hochladen.', 'err');
+  } finally {
+    zone.classList.remove('uploading');
+  }
+}
+
+// Grobe Zuordnung Hex-Farbe -> deutscher Farbname (naechster Treffer per
+// RGB-Abstand). Eine exakte Farbe laesst sich nicht immer 1:1 in ein Wort
+// uebersetzen - das ist eine bewusste, für die Anzeige ausreichende
+// Näherung, keine Farbmanagement-Software. Der exakte Hex-Wert bleibt bei
+// Bedarf als Tooltip (title-Attribut) abrufbar.
+const NAMED_COLORS = [
+  ['Schwarz', '000000'], ['Weiss', 'FFFFFF'], ['Grau', '808080'],
+  ['Hellgrau', 'D3D3D3'], ['Dunkelgrau', '404040'],
+  ['Rot', 'FF0000'], ['Dunkelrot', '8B0000'], ['Rosa', 'FFC0CB'],
+  ['Pink', 'FF1493'], ['Magenta', 'FF00FF'],
+  ['Orange', 'FFA500'], ['Gelb', 'FFFF00'], ['Hellgelb', 'FFFFE0'],
+  ['Braun', '8B4513'], ['Beige', 'F5F5DC'],
+  ['Gruen', '008000'], ['Hellgruen', '90EE90'], ['Dunkelgruen', '006400'],
+  ['Olivgruen', '808000'],
+  ['Tuerkis', '40E0D0'], ['Cyan', '00FFFF'],
+  ['Blau', '0000FF'], ['Hellblau', 'ADD8E6'], ['Dunkelblau', '00008B'],
+  ['Marineblau', '000080'],
+  ['Lila', '800080'], ['Violett', '8A2BE2'],
+  ['Gold', 'FFD700'], ['Silber', 'C0C0C0'], ['Kupfer', 'B87333'],
+];
+
+function hexToRgb(hex){
+  const h = (hex || '').replace('#', '');
+  return {
+    r: parseInt(h.substring(0, 2), 16) || 0,
+    g: parseInt(h.substring(2, 4), 16) || 0,
+    b: parseInt(h.substring(4, 6), 16) || 0,
+  };
+}
+
+function colorNameFor(hex){
+  const target = hexToRgb(hex);
+  let best = 'unbekannt', bestDist = Infinity;
+  for(const [name, h] of NAMED_COLORS){
+    const c = hexToRgb(h);
+    const dist = (c.r - target.r) ** 2 + (c.g - target.g) ** 2 + (c.b - target.b) ** 2;
+    if(dist < bestDist){ bestDist = dist; best = name; }
+  }
+  return best;
+}
+
+function amsRowHtml(filament, i, amsTrays){
+  const suggested = (filament.suggested_tray === undefined) ? -1 : filament.suggested_tray;
+  const suggestedTray = amsTrays.find(t => t.flat_index === suggested) || null;
+  const hasSuggestion = suggested !== -1 && suggestedTray !== null;
+  const filamentColorName = colorNameFor(filament.color);
+  const filamentHexTitle = '#' + (filament.color || '').toUpperCase();
+
+  // v2.2.20 hatte hier AMS-HT-Faecher noch ausgeblendet (unverifizierter
+  // Mapping-Wert); seit v2.2.21 (verifizierter Wert, siehe
+  // _slot_to_flat_index()) werden sie wieder ganz normal wie jedes
+  // andere AMS-Fach behandelt - keine Sonderbehandlung mehr noetig.
+  const suggestionLabel = hasSuggestion
+    ? `AMS-Fach ${suggestedTray.flat_index} &middot; ${suggestedTray.type || '-'} &middot; <span title="${'#' + (suggestedTray.color || '').toUpperCase()}">${colorNameFor(suggestedTray.color)}</span>`
+    : `Extern / manuell am Display (keine passende Farbe im AMS gefunden)`;
+
+  // "Andere Wahl"-Dropdown: alle AMS-Faecher AUSSER dem bereits vorgeschlagenen,
+  // plus immer die Option "Extern / manuell".
+  const otherTrays = amsTrays.filter(t => t.flat_index !== suggested);
+  const otherOptions = [`<option value="-1">Extern / manuell am Display</option>`]
+    .concat(otherTrays.map(t => {
+      const remain = (t.remain === undefined || t.remain === null || t.remain < 0) ? '?' : t.remain + '%';
+      const trayColorName = colorNameFor(t.color);
+      return `<option value="${t.flat_index}">AMS-Fach ${t.flat_index} &middot; ${t.type || '-'} &middot; ${trayColorName} &middot; ${remain}</option>`;
+    })).join('');
+
+  const groupName = 'ams-choice-' + i;
+  return `
+    <div class="ams-row" data-filament-index="${i}" data-true-index="${filament.index}" data-suggested="${suggested}">
+      <div class="ams-swatch" style="background:#${filament.color}" title="${filamentHexTitle}"></div>
+      <div class="ams-row-body">
+        <div class="ams-row-label" title="${filamentHexTitle}">Filament ${i + 1} <span class="ams-row-type">(${filament.type || '-'} &middot; ${filamentColorName})</span></div>
+        <label class="ams-radio">
+          <input type="radio" name="${groupName}" value="suggested" checked onchange="amsRowToggle(${i})">
+          <span>Vorschlag aus Datei verwenden: <b>${suggestionLabel}</b></span>
+        </label>
+        <label class="ams-radio">
+          <input type="radio" name="${groupName}" value="other" onchange="amsRowToggle(${i})">
+          <span>Anderes Material aus dem AMS waehlen:</span>
+          <select class="ams-row-select" id="ams-other-${i}" disabled>${otherOptions}</select>
+        </label>
+      </div>
+    </div>`;
+}
+
+function amsRowToggle(i){
+  const select = document.getElementById('ams-other-' + i);
+  const row = select.closest('.ams-row');
+  const chosen = row.querySelector(`input[name="ams-choice-${i}"]:checked`).value;
+  select.disabled = chosen !== 'other';
+}
+
+function closeAmsModal(){
+  document.getElementById('amsModal').classList.remove('show');
+  document.getElementById('amsModalRows').innerHTML = '';
+  resetAmsProgress();
+}
+
+function resetAmsProgress(){
+  document.getElementById('amsProgressWrap').style.display = 'none';
+  document.getElementById('amsProgressBar').style.width = '0%';
+  document.getElementById('amsProgressLabel').textContent = '';
+  document.getElementById('amsModalConfirmBtn').disabled = false;
+  document.getElementById('amsModalConfirmBtn').textContent = 'Drucken starten';
+  document.getElementById('amsModalCancelBtn').disabled = false;
+}
+
+function setAmsProgress(percent, label){
+  document.getElementById('amsProgressWrap').style.display = 'block';
+  document.getElementById('amsProgressBar').style.width = Math.max(0, Math.min(100, percent)) + '%';
+  document.getElementById('amsProgressLabel').textContent = label;
+}
+
+function formatBytes(n){
+  if(n >= 1024 * 1024) return (n / (1024 * 1024)).toFixed(1) + ' MB';
+  if(n >= 1024) return (n / 1024).toFixed(0) + ' KB';
+  return n + ' B';
+}
+
+// Toasts: unabhaengig vom alle 2,5s neu gerenderten Drucker-Grid, damit
+// Erfolgs-/Fehlermeldungen nicht durch refresh() sofort wieder
+// verschwinden.
+function showToast(message, kind){
+  const container = document.getElementById('toastContainer');
+  const el = document.createElement('div');
+  el.className = 'toast ' + (kind === 'err' ? 'err' : 'ok');
+  el.textContent = message;
+  container.appendChild(el);
+  setTimeout(() => el.remove(), 7000);
+}
+
+function renderOctoPrintCard(p){
+  const online = p.connected;
+  const pct = p.progress || 0;
+  const remMin = formatRemaining(p.remaining_min);
+  return `
+    <div class="printer-card">
+      <div class="card-head">
+        <div>
+          <span class="status-dot ${online ? 'online' : ''}"></span>
+          <span class="name">${p.name}</span>
+          <span class="ip">${p.ip}</span>
+          <span class="type-badge">OctoPrint</span>
+        </div>
+        <div class="head-right">
+          <span class="state-badge ${stateClass(p.gcode_state)}">${p.gcode_state || 'UNKNOWN'}</span>
+          <div class="cam-icon" title="Kamera anzeigen" onclick="openCam('${p.id}')">${CAM_ICON}</div>
+        </div>
+      </div>
+      <div class="card-body">
+        <div>
+          <div class="field-label">Aktuelle Datei</div>
+          <div class="file-name">${p.file_name || '-'} ${remMin ? ' &middot; ' + remMin : ''}</div>
+
+          <div class="field-label">Fortschritt</div>
+          <div class="progress-row">
+            <div class="progress-track"><div class="progress-fill" style="width:${pct}%"></div></div>
+            <div class="progress-pct">${pct}%</div>
+          </div>
+
+          <div class="field-label">Temperaturen</div>
+          <div class="temps">
+            ${tempChip(p.id, 'nozzle', 'Duese', p.nozzle_temp)}
+            ${tempChip(p.id, 'bed', 'Bett', p.bed_temp)}
+            ${extraTempChips(p.id, p.extras)}
+          </div>
+          ${p.error ? `<div class="error-hint">${p.error}</div>` : ''}
+        </div>
+        <div>
+          <div class="field-label">Hinweis</div>
+          <div class="hint-text" style="margin:0;">OctoPrint liefert keine Kammertemperatur / kein AMS-Aequivalent.</div>
+        </div>
+      </div>
+      ${renderExtras(p.id, p.extras)}
+    </div>`;
+}
+
+function renderCrealityCard(p){
+  const online = p.connected;
+  const pct = p.progress || 0;
+  const label = CREALITY_LABELS[p.type] || 'Creality (Klipper)';
+  const hasChamber = (p.chamber_temp !== undefined && p.chamber_temp !== null);
+  return `
+    <div class="printer-card">
+      <div class="card-head">
+        <div>
+          <span class="status-dot ${online ? 'online' : ''}"></span>
+          <span class="name">${p.name}</span>
+          <span class="ip">${p.ip}</span>
+          <span class="type-badge">${label}</span>
+        </div>
+        <div class="head-right">
+          <span class="state-badge ${stateClass(p.gcode_state)}">${p.gcode_state || 'UNKNOWN'}</span>
+          <div class="cam-icon" title="Kamera anzeigen" onclick="openCam('${p.id}')">${CAM_ICON}</div>
+        </div>
+      </div>
+      <div class="card-body">
+        <div>
+          <div class="field-label">Aktuelle Datei</div>
+          <div class="file-name">${p.file_name || '-'}</div>
+
+          <div class="field-label">Fortschritt</div>
+          <div class="progress-row">
+            <div class="progress-track"><div class="progress-fill" style="width:${pct}%"></div></div>
+            <div class="progress-pct">${pct}%</div>
+          </div>
+
+          <div class="field-label">Temperaturen</div>
+          <div class="temps">
+            ${hasChamber ? tempChip(p.id, 'chamber', 'Kammer', p.chamber_temp) : ''}
+            ${tempChip(p.id, 'nozzle', 'Duese', p.nozzle_temp)}
+            ${tempChip(p.id, 'bed', 'Bett', p.bed_temp)}
+            ${extraTempChips(p.id, p.extras)}
+          </div>
+          ${p.error ? `<div class="error-hint">${p.error}</div>` : ''}
+        </div>
+        <div>
+          <div class="field-label">Hinweis</div>
+          <div class="hint-text" style="margin:0;">Ueber Moonraker angebunden. Kammertemperatur nur sichtbar, falls im Klipper-Setup ein entsprechender Sensor konfiguriert ist.</div>
+        </div>
+      </div>
+      ${renderExtras(p.id, p.extras)}
+    </div>`;
+}
+
+function renderUltimakerCard(p){
+  const online = p.connected;
+  const pct = p.progress || 0;
+  const remMin = formatRemaining(p.remaining_min);
+  return `
+    <div class="printer-card">
+      <div class="card-head">
+        <div>
+          <span class="status-dot ${online ? 'online' : ''}"></span>
+          <span class="name">${p.name}</span>
+          <span class="ip">${p.ip}</span>
+          <span class="type-badge">Ultimaker</span>
+        </div>
+        <div class="head-right">
+          <span class="state-badge ${stateClass(p.gcode_state)}">${p.gcode_state || 'UNKNOWN'}</span>
+          <div class="cam-icon" title="Kamera anzeigen" onclick="openCam('${p.id}')">${CAM_ICON}</div>
+        </div>
+      </div>
+      <div class="card-body">
+        <div>
+          <div class="field-label">Aktuelle Datei</div>
+          <div class="file-name">${p.file_name || '-'} ${remMin ? ' &middot; ' + remMin : ''}</div>
+
+          <div class="field-label">Fortschritt</div>
+          <div class="progress-row">
+            <div class="progress-track"><div class="progress-fill" style="width:${pct}%"></div></div>
+            <div class="progress-pct">${pct}%</div>
+          </div>
+
+          <div class="field-label">Temperaturen</div>
+          <div class="temps">
+            ${tempChip(p.id, 'nozzle', 'Duese', p.nozzle_temp)}
+            ${tempChip(p.id, 'bed', 'Bett', p.bed_temp)}
+            ${extraTempChips(p.id, p.extras)}
+          </div>
+          ${p.error ? `<div class="error-hint">${p.error}</div>` : ''}
+        </div>
+        <div>
+          <div class="field-label">Druckauftrag senden</div>
+          ${renderUltimakerDropZone(p.id, !!p.ultimaker_paired)}
+          <div class="hint-text" style="margin-top:8px;">Ultimaker-Desktopdrucker haben keinen Kammertemperatursensor.</div>
+        </div>
+      </div>
+      ${renderExtras(p.id, p.extras)}
+    </div>`;
+}
+
+function renderUltimakerDropZone(printerId, paired){
+  if(!paired){
+    return `
+      <div class="drop-zone dz-disabled">
+        Kopplung mit dem Drucker erforderlich, bevor Druckauftraege
+        gesendet werden koennen.
+        <div class="dz-hint">
+          <button type="button" class="btn-mini" onclick="pairUltimaker('${printerId}')">Jetzt koppeln</button>
+        </div>
+      </div>`;
+  }
+  return `
+    <div class="drop-zone" id="dz-${printerId}"
+         ondragover="dzDragOver(event)"
+         ondragleave="dzDragLeave(event)"
+         ondrop="dzDropUltimaker(event,'${printerId}')">
+      Fertig gesclicte .gcode-Datei hier ablegen zum Drucken
+      <div class="dz-hint">Export aus Cura, z. B. ueber "Datei speichern"</div>
+    </div>`;
+}
+
+async function pairUltimaker(printerId){
+  showToast('Kopplungsanfrage gesendet - bitte am Drucker-Display bestaetigen...', 'ok');
+  try{
+    const res = await fetch('/api/printers/' + printerId + '/ultimaker/pair/start', { method: 'POST' });
+    const data = await res.json();
+    if(!res.ok){
+      showToast(data.error || 'Kopplungsanfrage fehlgeschlagen.', 'err');
+      return;
+    }
+  } catch(e){
+    showToast('Netzwerkfehler bei der Kopplungsanfrage.', 'err');
+    return;
+  }
+
+  // Server-seitiges Zeitlimit liegt bei 120s - hier etwas grosszuegiger,
+  // damit ein knapp verpasster letzter Poll nicht faelschlich als
+  // Netzwerkfehler statt als Ablauf gemeldet wird.
+  const deadline = Date.now() + 130000;
+  while(Date.now() < deadline){
+    await new Promise(r => setTimeout(r, 2000));
+    try{
+      const res = await fetch('/api/printers/' + printerId + '/ultimaker/pair/status');
+      const data = await res.json();
+      if(!res.ok){
+        showToast(data.error || 'Kopplung fehlgeschlagen.', 'err');
+        return;
+      }
+      if(data.status === 'authorized'){
+        showToast('Kopplung erfolgreich - Druckauftraege koennen jetzt gesendet werden.', 'ok');
+        refresh();
+        return;
+      }
+      if(data.status === 'unauthorized'){
+        showToast('Kopplung am Drucker-Display abgelehnt.', 'err');
+        return;
+      }
+      // status === 'pending' -> weiter warten
+    } catch(e){
+      showToast('Netzwerkfehler beim Pruefen der Kopplung.', 'err');
+      return;
+    }
+  }
+  showToast('Kopplung abgelaufen (keine Bestaetigung am Display) - bitte erneut versuchen.', 'err');
+}
+
+function renderFormlabsCard(p){
+  const online = p.connected;
+  const pct = p.progress || 0;
+  const labels = FL_LABELS[p.type] || FL_LABELS.formlabs;
+  // v2.2.16: Formlabs hat (anders als Bambu/OctoPrint/Creality/Ultimaker)
+  // von Haus aus KEINE eigene Temperaturen-Zeile - wird nur eingeblendet,
+  // wenn tatsaechlich mindestens ein MQTT-Extra-Sensor mit "display":
+  // "temperature"/"humidity" an diesem Drucker haengt (sonst leere
+  // Ueberschrift ohne Inhalt).
+  const extraTemps = extraTempChips(p.id, p.extras);
+  return `
+    <div class="printer-card">
+      <div class="card-head">
+        <div>
+          <span class="status-dot ${online ? 'online' : ''}"></span>
+          <span class="name">${p.name}</span>
+          <span class="ip">${p.ip}</span>
+          <span class="type-badge">${labels.badge}</span>
+        </div>
+        <div class="head-right">
+          <span class="state-badge ${stateClass(p.device_status)}">${p.device_status || 'UNKNOWN'}</span>
+        </div>
+      </div>
+      <div class="card-body single-col">
+        <div>
+          <div class="field-label">${labels.file}</div>
+          <div class="file-name">${p.file_name || '-'}</div>
+
+          <div class="field-label">Fortschritt</div>
+          <div class="progress-row">
+            <div class="progress-track"><div class="progress-fill" style="width:${pct}%"></div></div>
+            <div class="progress-pct">${pct}%</div>
+          </div>
+
+          ${labels.showMaterial ? `
+          <div class="field-label">Geladenes Harz / Material</div>
+          <div class="file-name">${p.material || '-'}</div>
+          ` : ''}
+
+          ${extraTemps ? `
+          <div class="field-label">Temperaturen</div>
+          <div class="temps">${extraTemps}</div>
+          ` : ''}
+
+          ${p.error ? `<div class="error-hint">${p.error}</div>` : ''}
+        </div>
+      </div>
+      ${renderExtras(p.id, p.extras)}
+    </div>`;
+}
+
+async function loadVersion(){
+  try{
+    const res = await fetch('/api/version');
+    const data = await res.json();
+    document.getElementById('verBadge').textContent = 'v' + data.version;
+  } catch(e){ /* Version ist rein informativ - Fehler hier ignorieren */ }
+}
+
+// MK6: Kartenlayout 1/2/3/4-spaltig (4 seit v2.4.0), Auswahl wird lokal im
+// Browser gemerkt (localStorage) - reine Anzeige-Praeferenz, kein Server-/
+// config.json-Zustand, da jeder Nutzer/Browser sein eigenes Layout haben kann.
+function getLayoutCols(){
+  try{
+    const v = parseInt(localStorage.getItem('dashboardLayoutCols'), 10);
+    return [1,2,3,4].includes(v) ? v : 1;
+  } catch(e){ return 1; }
+}
+function setLayoutCols(cols){
+  const list = document.getElementById('printerList');
+  list.classList.remove('cols-2','cols-3','cols-4');
+  if(cols === 2) list.classList.add('cols-2');
+  if(cols === 3) list.classList.add('cols-3');
+  if(cols === 4) list.classList.add('cols-4');
+  document.querySelectorAll('.layout-btn').forEach(b=>{
+    b.classList.toggle('active', parseInt(b.dataset.cols,10) === cols);
+  });
+  try{ localStorage.setItem('dashboardLayoutCols', String(cols)); } catch(e){ /* z.B. privater Modus - Auswahl bleibt dann nur fuer diese Sitzung aktiv */ }
+}
+
+// Externe RTSP-Kameras: Anzeige ueber den RTSP-Player (siehe RtspPlayer)
+function openExternalCam(camId){
+  openRtspUrl('/camera/rtsp/' + camId + '?_=' + Date.now());
+}
+
+async function refreshSettingsPanel(){
+  let dash, settings;
+  try{
+    [dash, settings] = await Promise.all([
+      fetch('/api/dashboard', {cache: 'no-store'}).then(r => r.json()),
+      fetch('/api/settings', {cache: 'no-store'}).then(r => r.json()),
+    ]);
+  } catch(e){
+    showToast('Einstellungen konnten nicht geladen werden.', 'err');
+    return;
+  }
+  lastPrinterList = dash.printers;
+  lastGroupList = dash.groups;
+  lastStandaloneExtrasList = dash.standalone_extras;
+  refreshPrinterManageList(dash.printers, dash.groups);
+  refreshGroupsManageList(dash.groups);
+  refreshCamerasManageList(dash.cams, dash.groups);
+  refreshMqttSettingsSection();
+  fillGeneralSettings(settings);
+  refreshSystemInfo();
+}
+
+// ----------------------------------------------------------------------
+// RP2350: Allgemein & Netzwerk
+// ----------------------------------------------------------------------
+function toggleStaticIpFields(){
+  const dhcp = document.getElementById('net_dhcp').checked;
+  document.getElementById('staticIpFields').style.display = dhcp ? 'none' : 'block';
+}
+
+function fillGeneralSettings(s){
+  const n = s.network || {};
+  document.getElementById('set_preform').value = s.preform_server || '';
+  document.getElementById('net_dhcp').checked = n.dhcp !== false;
+  document.getElementById('net_ip').value = n.ip || '';
+  document.getElementById('net_mask').value = n.netmask || '255.255.255.0';
+  document.getElementById('net_gw').value = n.gateway || '';
+  document.getElementById('net_dns').value = n.dns || '';
+  document.getElementById('net_host').value = n.hostname || 'drucker-dashboard';
+  document.getElementById('net_ntp').value = n.ntp_server || 'pool.ntp.org';
+  document.getElementById('net_tz').value = n.timezone || 'CET-1CEST,M3.5.0,M10.5.0/3';
+  toggleStaticIpFields();
+}
+
+async function saveGeneralSettings(){
+  const body = {
+    preform_server: document.getElementById('set_preform').value.trim(),
+    network: {
+      dhcp: document.getElementById('net_dhcp').checked,
+      ip: document.getElementById('net_ip').value.trim(),
+      netmask: document.getElementById('net_mask').value.trim(),
+      gateway: document.getElementById('net_gw').value.trim(),
+      dns: document.getElementById('net_dns').value.trim(),
+      hostname: document.getElementById('net_host').value.trim(),
+      ntp_server: document.getElementById('net_ntp').value.trim(),
+      timezone: document.getElementById('net_tz').value.trim(),
+    }
+  };
+  try{
+    const res = await fetch('/api/settings', {method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
+    const data = await res.json();
+    if(!res.ok){ showToast(data.error || 'Einstellungen konnten nicht gespeichert werden.', 'err'); return; }
+    if(data.reboot_required){
+      showToast('Gespeichert. Netzwerk-/Zeiteinstellungen werden nach einem Neustart des Boards aktiv (Abschnitt "System").', 'ok');
+    } else {
+      showToast('Einstellungen gespeichert.', 'ok');
+    }
+  } catch(e){
+    showToast('Netzwerkfehler beim Speichern.', 'err');
+  }
+}
+
+// ----------------------------------------------------------------------
+// RP2350: System (Status, Diagnose-Log, Sicherung, Firmware, Neustart)
+// ----------------------------------------------------------------------
+async function refreshSystemInfo(){
+  const el = document.getElementById('systemInfo');
+  try{
+    const s = await fetch('/api/system', {cache: 'no-store'}).then(r => r.json());
+    const up = s.uptime_s, h = Math.floor(up / 3600), m = Math.floor(up / 60) % 60;
+    const heap = s.heap_total ? `${Math.round(s.heap_free / 1024)} KB frei von ${Math.round(s.heap_total / 1024)} KB` : '-';
+    el.innerHTML = `
+      <div class="manage-row"><div class="manage-info">Version<div class="manage-sub">v${s.version} (Basis: ${s.base})</div></div></div>
+      <div class="manage-row"><div class="manage-info">Plattform<div class="manage-sub">${s.platform}</div></div></div>
+      <div class="manage-row"><div class="manage-info">Netzwerk<div class="manage-sub">IP ${s.ip} &middot; MAC ${s.mac} &middot; ${s.link ? 'verbunden' : 'KEINE Verbindung'}</div></div></div>
+      <div class="manage-row"><div class="manage-info">Uhrzeit<div class="manage-sub">${s.time} ${s.time_synced ? '(per NTP gestellt)' : '(noch nicht per NTP gestellt - Anzeige = Laufzeit)'}</div></div></div>
+      <div class="manage-row"><div class="manage-info">Laufzeit / Speicher<div class="manage-sub">${h} h ${m} min &middot; ${heap} &middot; ${s.http_active} Web-Verbindungen &middot; ${s.camera_streams} Kamera-Streams</div></div></div>`;
+  } catch(e){
+    el.textContent = 'Systeminformationen nicht verfuegbar.';
+  }
+}
+
+async function showLog(){
+  const box = document.getElementById('logBox');
+  box.style.display = 'block';
+  box.textContent = 'Wird geladen ...';
+  try{
+    box.textContent = await fetch('/api/log', {cache: 'no-store'}).then(r => r.text()) || '(leer)';
+    box.scrollTop = box.scrollHeight;
+  } catch(e){ box.textContent = 'Log konnte nicht geladen werden.'; }
+}
+
+function exportConfig(){
+  window.location.href = '/api/config/export';
+}
+
+async function importConfig(input){
+  const file = input.files && input.files[0];
+  input.value = '';
+  if(!file) return;
+  if(!confirm('Die aktuelle Konfiguration des Boards (Drucker, Raeume, Kameras, Sensoren) wird durch "' + file.name +
+               '" ersetzt. Netzwerkeinstellungen des Boards bleiben erhalten. Fortfahren?')) return;
+  try{
+    const res = await fetch('/api/config/import', {method:'POST', headers:{'Content-Type':'application/json'}, body: file});
+    const data = await res.json();
+    if(!res.ok){ showToast(data.error || 'Import fehlgeschlagen.', 'err'); return; }
+    showToast('Konfiguration importiert.' + (data.warnings ? '\nHinweise: ' + data.warnings : ''), 'ok');
+    refreshSettingsPanel();
+  } catch(e){
+    showToast('Netzwerkfehler beim Import.', 'err');
+  }
+}
+
+async function rebootBoard(){
+  if(!confirm('Board jetzt neu starten? Die Weboberflaeche ist danach ca. 10-20 Sekunden nicht erreichbar.')) return;
+  try{ await fetch('/api/system/reboot', {method:'POST'}); }catch(e){}
+  showToast('Board startet neu ...', 'ok');
+  setTimeout(() => location.reload(), 15000);
+}
+
+async function uploadFirmware(input){
+  const file = input.files && input.files[0];
+  input.value = '';
+  if(!file) return;
+  if(!file.name.toLowerCase().endsWith('.bin')){
+    showToast('Bitte die .bin-Datei der Firmware waehlen (die .uf2 ist fuer das BOOTSEL-Laufwerk).', 'err');
+    return;
+  }
+  if(!confirm('Firmware "' + file.name + '" einspielen? Das Board startet danach neu.')) return;
+  const st = document.getElementById('fwStatus');
+  st.textContent = 'Wird hochgeladen ...';
+  const xhr = new XMLHttpRequest();
+  xhr.open('POST', '/api/system/ota');
+  xhr.setRequestHeader('Content-Type', 'application/octet-stream');
+  xhr.upload.onprogress = (e) => { if(e.lengthComputable) st.textContent = 'Wird hochgeladen ... ' + Math.floor(e.loaded * 100 / e.total) + '%'; };
+  xhr.onload = () => {
+    let d = {};
+    try{ d = JSON.parse(xhr.responseText); }catch(e){}
+    if(xhr.status === 200){
+      st.textContent = 'Firmware uebertragen - Board startet neu und installiert sie (ca. 30 Sekunden) ...';
+      setTimeout(() => location.reload(), 30000);
+    } else {
+      st.textContent = d.error || ('Fehler (HTTP ' + xhr.status + ')');
+    }
+  };
+  xhr.onerror = () => { st.textContent = 'Verbindung abgebrochen.'; };
+  xhr.send(file);
+}
+
+// ----------------------------------------------------------------------
+// v2.3.0: Einstellungen-Modus - Drucker-/Raum-/Kamera-Verwaltung sowie
+// Verlaufs-Einstellung. Siehe #settingsPanel-Markup sowie die Backend-
+// Routen /api/groups, /api/rtsp-cameras, /api/printers/reorder,
+// /api/printers/<id>/group, /api/settings.
+// ----------------------------------------------------------------------
+let settingsMode = false;
+
+function enterSettingsMode(){
+  settingsMode = true;
+  document.getElementById('operatorControls').style.display = 'none';
+  document.getElementById('settingsModeControls').style.display = 'flex';
+  document.getElementById('printerList').style.display = 'none';
+  document.getElementById('settingsPanel').style.display = 'block';
+  refreshSettingsPanel();
+}
+function exitSettingsMode(){
+  settingsMode = false;
+  document.getElementById('operatorControls').style.display = 'flex';
+  document.getElementById('settingsModeControls').style.display = 'none';
+  document.getElementById('printerList').style.display = '';
+  document.getElementById('settingsPanel').style.display = 'none';
+  refresh();
+}
+
+function refreshPrinterManageList(printers, groups){
+  const el = document.getElementById('printerManageList');
+  if(!printers.length){
+    el.innerHTML = '<div class="hint-text">Noch keine Drucker hinterlegt.</div>';
+    return;
+  }
+  const sorted = printers.slice().sort((a,b) => (a.order||0) - (b.order||0));
+  const groupOptions = currentGroupId => groups.map(gr =>
+    `<option value="${gr.id}" ${currentGroupId === gr.id ? 'selected' : ''}>${gr.name}</option>`).join('');
+  el.innerHTML = sorted.map((p, i) => `
+    <div class="manage-row">
+      <div class="queue-order-btns">
+        <button class="btn-mini" ${i === 0 ? 'disabled' : ''} title="Nach oben" onclick="movePrinterOrder('${p.id}',-1)">&uarr;</button>
+        <button class="btn-mini" ${i === sorted.length - 1 ? 'disabled' : ''} title="Nach unten" onclick="movePrinterOrder('${p.id}',1)">&darr;</button>
+      </div>
+      <div class="manage-info">
+        ${p.name}
+        <div class="manage-sub">${p.ip} &middot; ${p.type}</div>
+      </div>
+      <div class="manage-actions">
+        <select onchange="assignPrinterGroup('${p.id}', this.value)">
+          <option value="">Kein Raum</option>
+          ${groupOptions(p.group_id)}
+        </select>
+        <button class="btn-mini btn-delete" title="Entfernen" onclick="deletePrinter('${p.id}')">&times;</button>
+      </div>
+    </div>`).join('');
+}
+
+async function movePrinterOrder(printerId, direction){
+  const ids = lastPrinterList.slice().sort((a,b) => (a.order||0) - (b.order||0)).map(p => p.id);
+  const idx = ids.indexOf(printerId);
+  const newIdx = idx + direction;
+  if(idx < 0 || newIdx < 0 || newIdx >= ids.length) return;
+  [ids[idx], ids[newIdx]] = [ids[newIdx], ids[idx]];
+  try{
+    const res = await fetch('/api/printers/reorder', {
+      method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({order: ids})
+    });
+    if(!res.ok){
+      const data = await res.json().catch(() => ({}));
+      showToast(data.error || 'Reihenfolge konnte nicht geaendert werden.', 'err');
+      return;
+    }
+  } catch(e){
+    showToast('Netzwerkfehler beim Umsortieren.', 'err');
+    return;
+  }
+  refreshSettingsPanel();
+}
+
+async function assignPrinterGroup(printerId, groupId){
+  try{
+    const res = await fetch('/api/printers/' + printerId + '/group', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({group_id: groupId || null})
+    });
+    if(!res.ok){
+      const data = await res.json().catch(() => ({}));
+      showToast(data.error || 'Raum konnte nicht zugewiesen werden.', 'err');
+    }
+  } catch(e){
+    showToast('Netzwerkfehler bei der Raum-Zuweisung.', 'err');
+  }
+  refreshSettingsPanel();
+}
+
+function refreshGroupsManageList(groups){
+  const el = document.getElementById('groupsManageList');
+  if(!groups.length){
+    el.innerHTML = '<div class="hint-text">Noch keine Raeume angelegt.</div>';
+    return;
+  }
+  const sorted = groups.slice().sort((a,b) => (a.order||0) - (b.order||0));
+  el.innerHTML = sorted.map((g, i) => `
+    <div class="manage-row">
+      <div class="queue-order-btns">
+        <button class="btn-mini" ${i === 0 ? 'disabled' : ''} title="Nach oben" onclick="moveGroupOrder('${g.id}',-1)">&uarr;</button>
+        <button class="btn-mini" ${i === sorted.length - 1 ? 'disabled' : ''} title="Nach unten" onclick="moveGroupOrder('${g.id}',1)">&darr;</button>
+      </div>
+      <div class="manage-info">${g.name}</div>
+      <div class="manage-actions">
+        <button class="btn-mini" title="Umbenennen" onclick="renameGroup('${g.id}')">Umbenennen</button>
+        <button class="btn-mini btn-delete" title="Entfernen" onclick="deleteGroup('${g.id}')">&times;</button>
+      </div>
+    </div>`).join('');
+}
+
+async function createGroup(){
+  const input = document.getElementById('newGroupName');
+  const name = input.value.trim();
+  if(!name){ showToast('Bitte einen Namen fuer den Raum eingeben.', 'err'); return; }
+  try{
+    const res = await fetch('/api/groups', {
+      method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({name})
+    });
+    if(!res.ok){
+      const data = await res.json().catch(() => ({}));
+      showToast(data.error || 'Raum konnte nicht angelegt werden.', 'err');
+      return;
+    }
+  } catch(e){
+    showToast('Netzwerkfehler beim Anlegen des Raums.', 'err');
+    return;
+  }
+  input.value = '';
+  refreshSettingsPanel();
+}
+
+async function renameGroup(groupId){
+  const current = lastGroupList.find(g => g.id === groupId);
+  const name = window.prompt('Neuer Name fuer den Raum:', current ? current.name : '');
+  if(name === null) return;
+  const trimmed = name.trim();
+  if(!trimmed) return;
+  try{
+    const res = await fetch('/api/groups/' + groupId, {
+      method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({name: trimmed})
+    });
+    if(!res.ok){
+      const data = await res.json().catch(() => ({}));
+      showToast(data.error || 'Raum konnte nicht umbenannt werden.', 'err');
+      return;
+    }
+  } catch(e){
+    showToast('Netzwerkfehler beim Umbenennen.', 'err');
+    return;
+  }
+  refreshSettingsPanel();
+}
+
+async function deleteGroup(groupId){
+  if(!window.confirm('Diesen Raum wirklich entfernen? Zugewiesene Drucker werden NICHT geloescht, ' +
+                      'nur die Raum-Zuordnung wird entfernt (erscheinen danach unter "Ohne Raum").')) return;
+  try{
+    await fetch('/api/groups/' + groupId, { method:'DELETE' });
+  } catch(e){
+    showToast('Netzwerkfehler beim Entfernen des Raums.', 'err');
+  }
+  refreshSettingsPanel();
+}
+
+async function moveGroupOrder(groupId, direction){
+  const ids = lastGroupList.slice().sort((a,b) => (a.order||0) - (b.order||0)).map(g => g.id);
+  const idx = ids.indexOf(groupId);
+  const newIdx = idx + direction;
+  if(idx < 0 || newIdx < 0 || newIdx >= ids.length) return;
+  [ids[idx], ids[newIdx]] = [ids[newIdx], ids[idx]];
+  try{
+    const res = await fetch('/api/groups/reorder', {
+      method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({order: ids})
+    });
+    if(!res.ok){
+      const data = await res.json().catch(() => ({}));
+      showToast(data.error || 'Reihenfolge konnte nicht geaendert werden.', 'err');
+      return;
+    }
+  } catch(e){
+    showToast('Netzwerkfehler beim Umsortieren.', 'err');
+    return;
+  }
+  refreshSettingsPanel();
+}
+
+function refreshCamerasManageList(cams, groups){
+  lastCamsList = cams;
+  const el = document.getElementById('camerasManageList');
+  if(!cams.length){
+    el.innerHTML = '<div class="hint-text">Noch keine externen Kameras hinterlegt.</div>';
+    return;
+  }
+  const groupOptions = currentGroupId => groups.map(gr =>
+    `<option value="${gr.id}" ${currentGroupId === gr.id ? 'selected' : ''}>${gr.name}</option>`).join('');
+  el.innerHTML = cams.slice().sort((a,b) => (a.order||0) - (b.order||0)).map(c => `
+    <div class="manage-row">
+      <div class="manage-info">
+        ${c.name}
+        <div class="manage-sub">${c.url}${c.username ? ' &middot; Anmeldung hinterlegt' : ''}</div>
+      </div>
+      <div class="manage-actions">
+        <select onchange="assignCameraGroup('${c.id}', this.value)">
+          <option value="">Kein Raum</option>
+          ${groupOptions(c.group_id)}
+        </select>
+        <button class="btn-mini" title="Anzeigen" onclick="openExternalCam('${c.id}')">Anzeigen</button>
+        <button class="btn-mini" title="Bearbeiten" onclick="openCameraModal('${c.id}')">Bearbeiten</button>
+        <button class="btn-mini btn-delete" title="Entfernen" onclick="deleteRtspCamera('${c.id}')">&times;</button>
+      </div>
+    </div>`).join('');
+}
+
+async function assignCameraGroup(camId, groupId){
+  try{
+    const res = await fetch('/api/rtsp-cameras/' + camId + '/group', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({group_id: groupId || null})
+    });
+    if(!res.ok){
+      const data = await res.json().catch(() => ({}));
+      showToast(data.error || 'Raum konnte nicht zugewiesen werden.', 'err');
+    }
+  } catch(e){
+    showToast('Netzwerkfehler bei der Raum-Zuweisung.', 'err');
+  }
+  refreshSettingsPanel();
+}
+
+// v2.4.0: EIN Modal fuer Anlegen UND Bearbeiten einer externen RTSP-
+// Kamera (statt der vorherigen window.prompt()-Kette) - noetig, weil seit
+// v2.4.0 zusaetzlich Benutzername/Passwort UND eine Raum-Auswahl erfasst
+// werden sollen, was per prompt() nicht mehr vernuenftig bedienbar waere.
+// camId gesetzt = Bearbeiten (Felder vorausgefuellt aus lastCamsList),
+// sonst Anlegen.
+let cameraModalEditId = null;
+
+function openCameraModal(camId){
+  cameraModalEditId = camId || null;
+  const cam = camId ? lastCamsList.find(c => c.id === camId) : null;
+  document.getElementById('cameraModalTitle').textContent = cam ? 'Kamera bearbeiten' : 'Kamera hinzufuegen';
+  document.getElementById('cameraModalError').style.display = 'none';
+  document.getElementById('cam_name').value = cam ? cam.name : '';
+  document.getElementById('cam_url').value = cam ? cam.url : '';
+  document.getElementById('cam_username').value = cam ? (cam.username || '') : '';
+  document.getElementById('cam_password').value = cam ? (cam.password || '') : '';
+  const groupSelect = document.getElementById('cam_group');
+  groupSelect.innerHTML = '<option value="">Kein Raum</option>' +
+    lastGroupList.map(g => `<option value="${g.id}" ${cam && cam.group_id === g.id ? 'selected' : ''}>${g.name}</option>`).join('');
+  document.getElementById('cameraModal').classList.add('show');
+}
+function closeCameraModal(){
+  document.getElementById('cameraModal').classList.remove('show');
+  cameraModalEditId = null;
+}
+
+async function submitCameraModal(){
+  const name = document.getElementById('cam_name').value.trim();
+  const url = document.getElementById('cam_url').value.trim();
+  const username = document.getElementById('cam_username').value.trim();
+  const password = document.getElementById('cam_password').value;
+  const groupId = document.getElementById('cam_group').value;
+  const errBox = document.getElementById('cameraModalError');
+  errBox.style.display = 'none';
+  if(!name || !url){
+    errBox.textContent = 'Name und RTSP(S)-URL sind Pflichtfelder.';
+    errBox.style.display = 'block';
+    return;
+  }
+  const isEdit = !!cameraModalEditId;
+  // v2.4.0: beim Anlegen nimmt POST /api/rtsp-cameras group_id direkt
+  // entgegen (ein Request genuegt); PUT (Bearbeiten) aendert die Raum-
+  // Zuordnung bewusst NICHT mit, um ein versehentliches Leeren beim
+  // Weglassen des Felds auszuschliessen - dafuer dort die eigene Route
+  // (wie bei Druckern/assignPrinterGroup), daher der zweite Aufruf unten.
+  const body = isEdit ? { name, url, username, password } : { name, url, username, password, group_id: groupId || null };
+  const endpoint = isEdit ? '/api/rtsp-cameras/' + cameraModalEditId : '/api/rtsp-cameras';
+  let res, data;
+  try{
+    res = await fetch(endpoint, {
+      method: isEdit ? 'PUT' : 'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)
+    });
+    data = await res.json().catch(() => ({}));
+  } catch(e){
+    errBox.textContent = 'Netzwerkfehler beim Speichern der Kamera.';
+    errBox.style.display = 'block';
+    return;
+  }
+  if(!res.ok){
+    errBox.textContent = data.error || 'Kamera konnte nicht gespeichert werden.';
+    errBox.style.display = 'block';
+    return;
+  }
+  if(isEdit){
+    await fetch('/api/rtsp-cameras/' + cameraModalEditId + '/group', {
+      method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({group_id: groupId || null})
+    });
+  }
+  closeCameraModal();
+  refreshSettingsPanel();
+}
+
+async function deleteRtspCamera(camId){
+  if(!window.confirm('Diese Kamera wirklich entfernen?')) return;
+  try{
+    await fetch('/api/rtsp-cameras/' + camId, { method:'DELETE' });
+  } catch(e){
+    showToast('Netzwerkfehler beim Entfernen der Kamera.', 'err');
+  }
+  refreshSettingsPanel();
+}
+
+setLayoutCols(getLayoutCols());
+loadVersion();
+refresh();
+setInterval(refresh, 2500);
+</script>
+</body>
+</html>

@@ -1,0 +1,247 @@
+// =====================================================================
+// RP2350-Implementierung von plat.h (arduino-pico, FreeRTOS SMP, lwIP
+// ueber W5500 im MACRAW-Modus, LittleFS)
+// =====================================================================
+#ifdef ARDUINO
+#include <Arduino.h>
+#include <FreeRTOS.h>
+#include <semphr.h>
+#include <task.h>
+#include <LittleFS.h>
+#include <WiFiClient.h>
+#include <WiFiServer.h>
+#include <Updater.h>
+#include <time.h>
+#include "plat.h"
+
+// in der .ino-Datei definiert (Zugriff auf das Ethernet-Objekt)
+std::string dev_local_ip();
+std::string dev_mac();
+bool dev_link_up();
+
+void plat_log_out(const char* line) {
+    Serial.print(line);
+}
+
+namespace plat {
+
+uint32_t millis() { return ::millis(); }
+void sleep_ms(uint32_t ms) { ::delay(ms); }
+
+int64_t epoch() {
+    time_t t = time(nullptr);
+    return t > 1700000000 ? (int64_t)t : 0;
+}
+
+std::string time_hms() {
+    char b[24];
+    time_t t = time(nullptr);
+    if (t > 1700000000) {
+        struct tm lt;
+        localtime_r(&t, &lt);
+        strftime(b, sizeof(b), "%H:%M:%S", &lt);
+    } else {
+        uint32_t s = ::millis() / 1000;
+        snprintf(b, sizeof(b), "+%02u:%02u:%02u", (unsigned)(s / 3600), (unsigned)(s / 60 % 60), (unsigned)(s % 60));
+    }
+    return b;
+}
+
+uint32_t random32() { return rp2040.hwrand32(); }
+
+Mutex::Mutex() : h_(xSemaphoreCreateRecursiveMutex()) {}
+Mutex::~Mutex() { vSemaphoreDelete((SemaphoreHandle_t)h_); }
+void Mutex::lock() { xSemaphoreTakeRecursive((SemaphoreHandle_t)h_, portMAX_DELAY); }
+void Mutex::unlock() { xSemaphoreGiveRecursive((SemaphoreHandle_t)h_); }
+
+struct TaskArgs {
+    void (*fn)(void*);
+    void* arg;
+};
+
+static void task_trampoline(void* p) {
+    TaskArgs a = *(TaskArgs*)p;
+    delete (TaskArgs*)p;
+    a.fn(a.arg);
+    vTaskDelete(nullptr);
+}
+
+bool task_start(const char* name, void (*fn)(void*), void* arg, uint32_t stack_bytes, int prio) {
+    TaskArgs* a = new TaskArgs{fn, arg};
+    if (xTaskCreate(task_trampoline, name, stack_bytes / sizeof(StackType_t), a, tskIDLE_PRIORITY + prio, nullptr) != pdPASS) {
+        delete a;
+        return false;
+    }
+    return true;
+}
+
+uint32_t free_heap() { return rp2040.getFreeHeap(); }
+uint32_t total_heap() { return rp2040.getTotalHeap(); }
+
+// ---- TCP ueber lwIP (WiFiClient funktioniert auch mit dem W5500) -------
+class DevConn : public Conn {
+public:
+    explicit DevConn(const WiFiClient& c) : c_(c) {
+        c_.setNoDelay(true);
+        IPAddress ip = c_.remoteIP();
+        peer_ = ip.toString().c_str();
+    }
+    ~DevConn() override { close(); }
+    int read_raw(uint8_t* buf, size_t len, uint32_t timeout_ms) override {
+        uint32_t start = ::millis();
+        for (;;) {
+            int a = c_.available();
+            if (a > 0) {
+                int n = c_.read(buf, len < (size_t)a ? len : (size_t)a);
+                if (n > 0) return n;
+            }
+            if (!c_.connected()) {
+                if (c_.available() > 0) continue;
+                open_ = false;
+                return -1;
+            }
+            if (::millis() - start >= timeout_ms) return 0;
+            ::delay(1);
+        }
+    }
+    int available() override {
+        if (!pushback_.empty()) return (int)pushback_.size();
+        return c_.available();
+    }
+    bool write_all(const uint8_t* buf, size_t len, uint32_t timeout_ms) override {
+        size_t off = 0;
+        uint32_t start = ::millis();
+        c_.setTimeout(timeout_ms);
+        while (off < len) {
+            if (!c_.connected()) {
+                open_ = false;
+                return false;
+            }
+            size_t n = c_.write(buf + off, len - off);
+            if (n == 0) {
+                if (::millis() - start > timeout_ms) return false;
+                ::delay(2);
+                continue;
+            }
+            off += n;
+        }
+        return true;
+    }
+    void close() override {
+        if (open_) c_.stop();
+        open_ = false;
+    }
+    bool is_open() override { return open_ && (c_.connected() || c_.available() > 0); }
+    std::string peer() override { return peer_; }
+
+private:
+    WiFiClient c_;
+    bool open_ = true;
+    std::string peer_;
+};
+
+Conn* tcp_connect(const std::string& host, uint16_t port, uint32_t timeout_ms, std::string* err) {
+    WiFiClient c;
+    c.setTimeout(timeout_ms);
+    if (!c.connect(host.c_str(), port)) {
+        if (err) *err = "Verbindung zu " + host + ":" + std::to_string(port) + " fehlgeschlagen (nicht erreichbar oder Port geschlossen)";
+        return nullptr;
+    }
+    return new DevConn(c);
+}
+
+TcpServer::TcpServer() : impl_(nullptr) {}
+TcpServer::~TcpServer() { delete (WiFiServer*)impl_; }
+bool TcpServer::begin(uint16_t port) {
+    WiFiServer* s = new WiFiServer(port);
+    s->begin();
+    s->setNoDelay(true);
+    impl_ = s;
+    return true;
+}
+Conn* TcpServer::accept() {
+    WiFiServer* s = (WiFiServer*)impl_;
+    WiFiClient c = s->accept();
+    if (!c) return nullptr;
+    return new DevConn(c);
+}
+
+std::string local_ip() { return dev_local_ip(); }
+std::string mac_address() { return dev_mac(); }
+bool link_up() { return dev_link_up(); }
+
+// ---- LittleFS (nur serialisiert benutzen) ------------------------------
+static Mutex* g_fs = nullptr;
+static Mutex& fsm() {
+    if (!g_fs) g_fs = new Mutex();
+    return *g_fs;
+}
+
+bool fs_read(const char* path, std::string& out) {
+    Lock lk(fsm());
+    File f = LittleFS.open(path, "r");
+    if (!f) return false;
+    out.clear();
+    out.reserve(f.size());
+    uint8_t buf[256];
+    while (f.available()) {
+        int n = f.read(buf, sizeof(buf));
+        if (n <= 0) break;
+        out.append((const char*)buf, (size_t)n);
+    }
+    f.close();
+    return true;
+}
+
+bool fs_write(const char* path, const std::string& data) {
+    Lock lk(fsm());
+    std::string tmp = std::string(path) + ".tmp";
+    File f = LittleFS.open(tmp.c_str(), "w");
+    if (!f) return false;
+    size_t w = f.write((const uint8_t*)data.data(), data.size());
+    f.close();
+    if (w != data.size()) return false;
+    LittleFS.remove(path);
+    return LittleFS.rename(tmp.c_str(), path);
+}
+
+bool fs_remove(const char* path) {
+    Lock lk(fsm());
+    return LittleFS.remove(path);
+}
+
+void reboot() {
+    ::delay(200);
+    rp2040.reboot();
+}
+
+const char* platform_name() { return "RP2350 (Seengreat RP2350-Mini-ETH, W5500)"; }
+
+// ---- Firmware-Update (.bin) ueber LittleFS-Zwischenspeicher -------------
+bool ota_begin(size_t size, std::string* err) {
+    Lock lk(fsm());
+    if (!Update.begin(size)) {
+        if (err) *err = "Firmware passt nicht in den Zwischenspeicher (zu gross?) - Update ueber BOOTSEL/UF2 durchfuehren.";
+        return false;
+    }
+    return true;
+}
+bool ota_write(const uint8_t* data, size_t len) {
+    Lock lk(fsm());
+    return Update.write((uint8_t*)data, len) == len;
+}
+bool ota_end(std::string* err) {
+    Lock lk(fsm());
+    if (!Update.end(true)) {
+        if (err) *err = std::string("Firmware-Update fehlgeschlagen (Fehler ") + std::to_string(Update.getError()) + ").";
+        return false;
+    }
+    return true;
+}
+void ota_abort() {
+    Lock lk(fsm());
+    Update.end(false);
+}
+
+} // namespace plat
+#endif

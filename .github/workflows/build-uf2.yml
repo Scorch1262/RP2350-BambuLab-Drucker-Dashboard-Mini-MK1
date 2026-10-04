@@ -1,0 +1,50 @@
+name: Firmware bauen (UF2)
+
+on:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: arduino-cli installieren
+        uses: arduino/setup-arduino-cli@v2
+
+      - name: arduino-pico (RP2040/RP2350-Core) installieren
+        run: |
+          arduino-cli config init
+          arduino-cli config add board_manager.additional_urls https://github.com/earlephilhower/arduino-pico/releases/download/global/package_rp2040_index.json
+          arduino-cli core update-index
+          arduino-cli core install rp2040:rp2040@6.2.0
+
+      - name: Firmware bauen
+        run: sh tools/build.sh
+
+      - name: Version auslesen
+        id: ver
+        run: echo "version=$(grep -oP '#define APP_VERSION "\K[^"]+' firmware/DruckerDashboardRP2350-MK1/config.h)" >> "$GITHUB_OUTPUT"
+
+      - name: Dateien umbenennen
+        run: |
+          mkdir -p dist
+          cp build/DruckerDashboardRP2350-MK1.ino.uf2 "dist/DruckerDashboardRP2350-MK1-v${{ steps.ver.outputs.version }}.uf2"
+          cp build/DruckerDashboardRP2350-MK1.ino.bin "dist/DruckerDashboardRP2350-MK1-v${{ steps.ver.outputs.version }}.bin"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: firmware-v${{ steps.ver.outputs.version }}
+          path: dist/*
+
+      - name: Release veroeffentlichen
+        if: github.ref == 'refs/heads/main'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.ver.outputs.version }}
+          name: Drucker Dashboard RP2350 v${{ steps.ver.outputs.version }}
+          files: dist/*
