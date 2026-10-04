@@ -1,5 +1,7 @@
 # Drucker Dashboard RP2350 (MK1)
 
+![Drucker Dashboard RP2350](docs/banner.png)
+
 Firmware-Version des **Drucker Dashboard MK6 (v2.5.5)** für das
 **Seengreat RP2350-Mini-ETH** (RP2350A + W5500-Ethernet). Statt auf einem
 PC/Router läuft das Dashboard direkt auf dem Board – Netzwerkkabel und
