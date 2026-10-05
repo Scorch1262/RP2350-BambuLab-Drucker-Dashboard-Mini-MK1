@@ -17,7 +17,8 @@
 #include <task.h>
 #include <W5500lwIP.h>
 #include <LittleFS.h>
-#include <LEAmDNS.h>
+#include <SimpleMDNS.h>
+#include <LwipEthernet.h>
 #include <WiFiNTP.h>
 #include <time.h>
 #include <mbedtls_dd.h>
@@ -36,7 +37,9 @@
 #define PIN_ETH_INT 21
 #define DD_PIN_LED 25
 
-Wiznet5500lwIP eth(PIN_ETH_CS, SPI, PIN_ETH_INT);
+// Der W5500 wird abgefragt (Polling) statt ueber die INT-Leitung - das
+// funktioniert unabhaengig davon, ob/wie INT auf der Platine verdrahtet ist.
+Wiznet5500lwIP eth(PIN_ETH_CS, SPI, -1);
 
 extern char wifi_station_hostname[];
 
@@ -60,16 +63,27 @@ static IPAddress ip_of(const char* s) {
     return a;
 }
 
-void setup() {
-    Serial.begin(115200);
+// ---------------------------------------------------------------------
+// WICHTIG (v1.0.1): Unter FreeRTOS laufen setup()/loop() in der Aufgabe
+// "CORE0" des Cores, die nur 4 KB Stack hat. Die komplette Initialisierung
+// (JSON, Netzwerk, TLS-Vorbereitung, Logausgaben) passt da nicht hinein -
+// v1.0.0 lief deshalb beim Start in einen Stack-Ueberlauf und blieb haengen.
+// Seit v1.0.1 erledigt eine eigene Aufgabe "main" mit 24 KB Stack alles;
+// setup()/loop() tun praktisch nichts mehr.
+// ---------------------------------------------------------------------
+static void main_init() {
     statusled::begin(DD_PIN_LED);
     statusled::set(statusled::BOOT);
     delay(1500);   // Zeit fuer den USB-Seriell-Monitor
+    Serial.println();
+    Serial.println("==== " APP_NAME " v" APP_VERSION " startet ====");
+    Serial.printf("Letzter Neustart: %s\n", plat::boot_reason().c_str());
     if (!LittleFS.begin()) {
         Serial.println("LittleFS wird formatiert ...");
         LittleFS.format();
         LittleFS.begin();
     }
+    logf("[SYS] Start v%s - letzter Neustart: %s", APP_VERSION, plat::boot_reason().c_str());
     cfg::init();
 
     // Netzwerk-Einstellungen
@@ -107,10 +121,16 @@ void setup() {
         if (dnsA == IPAddress(0, 0, 0, 0)) dnsA = ip_of(gw.c_str());
         eth.config(ip_of(ip.c_str()), ip_of(gw.c_str()), ip_of(mask.c_str()), dnsA);
     }
+    lwipPollingPeriod(5);
     if (!eth.begin()) {
         logf("[NET] W5500 wurde nicht gefunden - Verkabelung/Board pruefen!");
         statusled::set(statusled::ERROR);
+    } else {
+        logf("[NET] W5500 gestartet, MAC %s", dev_mac().c_str());
     }
+    // Die Abfrage-Aufgabe des Treibers laeuft mit Prioritaet 1 und wuerde von
+    // den Drucker-Aufgaben (TLS-Rechnerei) ausgebremst -> hoeher setzen.
+    if (TaskHandle_t ep = xTaskGetHandle("EthPoll")) vTaskPrioritySet(ep, configMAX_PRIORITIES - 3);
     logf("[NET] Warte auf Netzwerk (%s) ...", dhcp ? "DHCP" : "feste IP");
     uint32_t t0 = millis();
     while (!eth.connected() && millis() - t0 < 20000) delay(100);
@@ -128,10 +148,9 @@ void setup() {
     }
     app::start(80);
     g_started = true;
-    rp2040.wdt_begin(8000);
 }
 
-void loop() {
+static void main_loop() {
     static uint32_t last_info = 0;
     static bool was_up = false;
     rp2040.wdt_reset();
@@ -145,9 +164,28 @@ void loop() {
     }
     statusled::set(up ? statusled::OK : statusled::NO_NET);
     statusled::tick();
-    if (millis() - last_info > 300000) {
+    if (millis() - last_info > 300000 || (last_info == 0 && millis() > 30000)) {
         last_info = millis();
         logf("[SYS] Freier Speicher: %u / %u Bytes", (unsigned)plat::free_heap(), (unsigned)plat::total_heap());
     }
-    delay(50);
+}
+
+static void main_task(void*) {
+    main_init();
+    rp2040.wdt_begin(8000);   // haengt die Hauptaufgabe > 8 s, startet das Board neu
+    for (;;) {
+        main_loop();
+        delay(50);
+    }
+}
+
+void setup() {
+    Serial.begin(115200);
+    TaskHandle_t h;
+    xTaskCreate(main_task, "main", 24 * 1024 / sizeof(StackType_t), nullptr, tskIDLE_PRIORITY + 3, &h);
+    vTaskCoreAffinitySet(h, 1 << 0);
+}
+
+void loop() {
+    delay(1000);
 }

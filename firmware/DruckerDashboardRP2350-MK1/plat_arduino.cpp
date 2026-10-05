@@ -3,6 +3,7 @@
 // ueber W5500 im MACRAW-Modus, LittleFS)
 // =====================================================================
 #ifdef ARDUINO
+#include <hardware/watchdog.h>
 #include <Arduino.h>
 #include <FreeRTOS.h>
 #include <semphr.h>
@@ -77,6 +78,44 @@ bool task_start(const char* name, void (*fn)(void*), void* arg, uint32_t stack_b
 
 uint32_t free_heap() { return rp2040.getFreeHeap(); }
 uint32_t total_heap() { return rp2040.getTotalHeap(); }
+
+// ---- Absturz-Diagnose ---------------------------------------------------
+// Ein Stack-Ueberlauf haelt das Board sonst stumm an (panic). Stattdessen
+// merken wir uns den Namen der Aufgabe im nicht initialisierten RAM und
+// starten neu; nach dem Neustart steht der Grund im Diagnose-Log.
+#define DD_CRASH_MAGIC 0x44444352u
+struct CrashInfo { uint32_t magic; char task[24]; };
+static CrashInfo __uninitialized_ram(g_crash);
+}  // namespace plat
+
+extern "C" void vApplicationStackOverflowHook(TaskHandle_t, char* name) {
+    plat::g_crash.magic = DD_CRASH_MAGIC;
+    strncpy(plat::g_crash.task, name ? name : "?", sizeof(plat::g_crash.task) - 1);
+    plat::g_crash.task[sizeof(plat::g_crash.task) - 1] = 0;
+    watchdog_reboot(0, 0, 10);
+    for (;;) {}
+}
+
+namespace plat {
+std::string boot_reason() {
+    static std::string r;
+    if (!r.empty()) return r;
+    switch (rp2040.getResetReason()) {
+        case RP2040::PWRON_RESET: r = "Einschalten"; break;
+        case RP2040::RUN_PIN_RESET: r = "Reset-Taster"; break;
+        case RP2040::SOFT_RESET: r = "Neustart durch Software"; break;
+        case RP2040::WDT_RESET: r = "Watchdog (Programm haengte)"; break;
+        case RP2040::DEBUG_RESET: r = "Debugger"; break;
+        case RP2040::GLITCH_RESET: r = "Spannungsstoerung"; break;
+        case RP2040::BROWNOUT_RESET: r = "Unterspannung"; break;
+        default: r = "unbekannt"; break;
+    }
+    if (g_crash.magic == DD_CRASH_MAGIC) {
+        r += std::string(" nach Stack-Ueberlauf in Aufgabe '") + g_crash.task + "'";
+    }
+    g_crash.magic = 0;
+    return r;
+}
 
 // ---- TCP ueber lwIP (WiFiClient funktioniert auch mit dem W5500) -------
 class DevConn : public Conn {

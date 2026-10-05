@@ -32,7 +32,7 @@ Hinweis ab, statt ihn einzureihen.
 1. **BOOT**-Taste gedrückt halten, Board per USB-C anschließen (oder bei
    angeschlossenem Board BOOT halten und kurz **RUN/Reset** drücken).
 2. Es erscheint ein Laufwerk **RP2350**.
-3. `DruckerDashboardRP2350-MK1-v1.0.0.uf2` darauf ziehen – das Board startet
+3. `DruckerDashboardRP2350-MK1-v1.0.1.uf2` darauf ziehen – das Board startet
    neu.
 
 Spätere Updates gehen auch ohne BOOT-Taste: *Einstellungen → System →
@@ -49,6 +49,26 @@ Firmware-Update (.bin)* mit der `.bin`-Datei (nicht der `.uf2`).
 
 **Status-LED:** blau = startet, grün = Netzwerk ok, orange blinkend = kein
 Netzwerk, rot = W5500 nicht gefunden.
+
+**Nicht erreichbar? So eingrenzen:**
+
+1. Seriellen Monitor öffnen (Arduino IDE oder z. B. PuTTY, USB-Port des
+   Boards, **115200 Baud**) und den Reset-Taster drücken. Erwartet wird:
+   ```
+   ==== Drucker Dashboard RP2350 v1.0.1 startet ====
+   Letzter Neustart: Einschalten
+   [NET] W5500 gestartet, MAC ...
+   [NET] IP-Adresse: 192.168.x.y  ->  http://192.168.x.y/
+   ```
+2. Bleibt die LED **blau** und kommt keine Ausgabe, hängt der Start –
+   die Ausgabe des seriellen Monitors bitte mitschicken.
+3. **Orange blinkend** = kein Link oder keine DHCP-Adresse: Kabel, Switch-Port
+   und DHCP-Server prüfen (in der Fritz!Box o. ä. nach „drucker-dashboard“
+   suchen).
+4. `.local`-Namen funktionieren nicht in jedem Netz (z. B. manche
+   Android-Geräte, VLANs) – dann die IP-Adresse verwenden.
+5. Unter Einstellungen → System wird der **letzte Neustartgrund** angezeigt
+   (z. B. „Watchdog“ oder „Stack-Überlauf in Aufgabe …“).
 
 ## 3. Bestehende Konfiguration übernehmen
 
@@ -168,7 +188,7 @@ UF2 + BIN und veröffentlicht auf `main` ein Release (Version aus
 
 ```
 firmware/DruckerDashboardRP2350-MK1/
-  DruckerDashboardRP2350-MK1.ino   Start: LittleFS, W5500, DHCP, mDNS, NTP, LED, Watchdog
+  DruckerDashboardRP2350-MK1.ino   Start (eigene Aufgabe, 24 KB Stack): LittleFS, W5500, DHCP, mDNS, NTP, LED, Watchdog
   plat.h / plat_arduino.cpp        Plattformschicht (FreeRTOS-Tasks, lwIP-TCP, LittleFS, OTA)
   tls.*                            mbedTLS-Client (TLS 1.2/1.3, Sitzungs-Wiederverwendung)
   httpd.* / api.*                  HTTP-Server + alle REST-Routen (Portierung der Flask-Routen)

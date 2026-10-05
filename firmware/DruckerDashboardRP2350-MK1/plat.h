@@ -57,6 +57,8 @@ bool task_start(const char* name, void (*fn)(void*), void* arg, uint32_t stack_b
 // Freier Heap in Bytes (Host: 0)
 uint32_t free_heap();
 uint32_t total_heap();
+// Grund des letzten Neustarts (Einschalten, Watchdog, Stack-Ueberlauf ...)
+std::string boot_reason();
 // true, wenn (auf dem Geraet) mindestens need Bytes Heap frei sind
 inline bool heap_ok(uint32_t need) { uint32_t f = free_heap(); return f == 0 || f >= need; }
 

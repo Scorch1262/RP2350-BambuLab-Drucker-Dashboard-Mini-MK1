@@ -1012,6 +1012,7 @@ static void h_system(Request& r) {
     d["platform"] = plat::platform_name();
     d["uptime_s"] = plat::millis() / 1000;
     d["heap_free"] = plat::free_heap();
+    d["boot_reason"] = plat::boot_reason();
     d["heap_total"] = plat::total_heap();
     d["ip"] = plat::local_ip();
     d["mac"] = plat::mac_address();
