@@ -2,3 +2,4 @@ build/
 host/obj/
 host/dashboard_host
 data/
+test/coop_qemu/out/

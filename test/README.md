@@ -16,3 +16,9 @@ Adressen (Linux, als root wegen Ports < 1024):
 
 Testdaten in `data/`: Zertifikat, H.264-Teststream, JPEG-Bilder, `Testteil.gcode.3mf`.
 Access Code aller Bambu-Mocks: `12345678`.
+
+## Kooperative Aufgaben (QEMU)
+
+`test/coop_qemu/run.sh` prüft `coop.cpp` auf einem emulierten Cortex-M33
+(qemu-system-arm, Maschine mps2-an505): Kontextwechsel inkl. FPU-Register,
+Interrupts auf Aufgaben-Stacks, Mutex, Aufräumen und Stack-Überlauf-Erkennung.

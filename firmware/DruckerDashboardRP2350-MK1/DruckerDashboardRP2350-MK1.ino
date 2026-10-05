@@ -10,11 +10,9 @@
 //   WS2812-Status-LED: GP25
 //
 // Bauen: siehe README.md (arduino-pico >= 6.2, Board "Raspberry Pi Pico 2",
-// Operating System "FreeRTOS SMP", Flash "4MB (Sketch: 3MB, FS: 1MB)",
+// Operating System "None" (KEIN FreeRTOS!), Flash "4MB (Sketch: 3MB, FS: 1MB)",
 // IP-Stack "IPv4 Only - 32K" bzw. tools/build.sh).
 // =====================================================================
-#include <FreeRTOS.h>
-#include <task.h>
 #include <W5500lwIP.h>
 #include <LittleFS.h>
 #include <SimpleMDNS.h>
@@ -28,6 +26,7 @@
 #include "config.h"
 #include "app_main.h"
 #include "status_led.h"
+#include "coop.h"
 
 #define PIN_ETH_MISO 16
 #define PIN_ETH_CS 17
@@ -54,6 +53,8 @@ std::string dev_mac() {
 }
 
 static bool g_started = false;
+static volatile bool g_wdt = false;
+static volatile uint32_t g_main_beat = 0;   // Lebenszeichen der Aufgabe "main"
 static bool g_mdns = false;
 static std::string g_hostname = "drucker-dashboard";
 
@@ -64,12 +65,9 @@ static IPAddress ip_of(const char* s) {
 }
 
 // ---------------------------------------------------------------------
-// WICHTIG (v1.0.1): Unter FreeRTOS laufen setup()/loop() in der Aufgabe
-// "CORE0" des Cores, die nur 4 KB Stack hat. Die komplette Initialisierung
-// (JSON, Netzwerk, TLS-Vorbereitung, Logausgaben) passt da nicht hinein -
-// v1.0.0 lief deshalb beim Start in einen Stack-Ueberlauf und blieb haengen.
-// Seit v1.0.1 erledigt eine eigene Aufgabe "main" mit 24 KB Stack alles;
-// setup()/loop() tun praktisch nichts mehr.
+// Ablauf (seit v1.1.0 ohne FreeRTOS): setup() legt die Aufgabe "main" an,
+// loop() ist der Verteiler fuer alle kooperativen Aufgaben (coop.cpp).
+// "main" initialisiert alles und erledigt danach die Hausarbeit.
 // ---------------------------------------------------------------------
 static void main_init() {
     delay(1500);   // Zeit fuer den USB-Seriell-Monitor
@@ -125,7 +123,7 @@ static void main_init() {
         if (dnsA == IPAddress(0, 0, 0, 0)) dnsA = ip_of(gw.c_str());
         eth.config(ip_of(ip.c_str()), ip_of(gw.c_str()), ip_of(mask.c_str()), dnsA);
     }
-    lwipPollingPeriod(5);
+    lwipPollingPeriod(10);
     if (!eth.begin()) {
         logf("[NET] W5500 wurde nicht gefunden - Verkabelung/Board pruefen!");
         statusled::set(statusled::ERROR);
@@ -133,9 +131,6 @@ static void main_init() {
         logf("[NET] W5500 gestartet, MAC %s", dev_mac().c_str());
         statusled::set(statusled::NET_WAIT);
     }
-    // Die Abfrage-Aufgabe des Treibers laeuft mit Prioritaet 1 und wuerde von
-    // den Drucker-Aufgaben (TLS-Rechnerei) ausgebremst -> hoeher setzen.
-    if (TaskHandle_t ep = xTaskGetHandle("EthPoll")) vTaskPrioritySet(ep, configMAX_PRIORITIES - 3);
     logf("[NET] Warte auf Netzwerk (%s) ...", dhcp ? "DHCP" : "feste IP");
     uint32_t t0 = millis();
     while (!eth.connected() && millis() - t0 < 20000) delay(100);
@@ -163,7 +158,7 @@ static void main_init() {
 static void main_loop() {
     static uint32_t last_info = 0;
     static bool was_up = false;
-    rp2040.wdt_reset();
+    g_main_beat = millis();
     app::tick();
     if (g_mdns) MDNS.update();
     bool up = eth.connected();
@@ -182,7 +177,8 @@ static void main_loop() {
 
 static void main_task(void*) {
     main_init();
-    rp2040.wdt_begin(8000);   // haengt die Hauptaufgabe > 8 s, startet das Board neu
+    g_wdt = true;
+    rp2040.wdt_begin(8000);   // bleibt eine Aufgabe > 8 s haengen, startet das Board neu
     for (;;) {
         main_loop();
         delay(50);
@@ -193,11 +189,12 @@ void setup() {
     Serial.begin(115200);
     statusled::begin(DD_PIN_LED);
     statusled::set(statusled::START);
-    TaskHandle_t h;
-    xTaskCreate(main_task, "main", 24 * 1024 / sizeof(StackType_t), nullptr, tskIDLE_PRIORITY + 3, &h);
-    vTaskCoreAffinitySet(h, 1 << 0);
+    coop::start("main", main_task, nullptr, 24 * 1024);
 }
 
 void loop() {
-    delay(1000);
+    // Watchdog nur fuettern, solange "main" lebt und keine Aufgabe den
+    // Prozessor dauerhaft blockiert (sonst kaeme loop() gar nicht dran).
+    if (g_wdt && millis() - g_main_beat < 30000) rp2040.wdt_reset();
+    coop::run_once();
 }

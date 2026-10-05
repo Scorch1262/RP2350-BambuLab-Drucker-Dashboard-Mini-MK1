@@ -1,19 +1,19 @@
 // =====================================================================
-// RP2350-Implementierung von plat.h (arduino-pico, FreeRTOS SMP, lwIP
+// RP2350-Implementierung von plat.h (arduino-pico ohne FreeRTOS,
+// kooperative Aufgaben aus coop.cpp, lwIP
 // ueber W5500 im MACRAW-Modus, LittleFS)
 // =====================================================================
 #ifdef ARDUINO
 #include <hardware/watchdog.h>
 #include <Arduino.h>
-#include <FreeRTOS.h>
-#include <semphr.h>
-#include <task.h>
 #include <LittleFS.h>
 #include <WiFiClient.h>
 #include <WiFiServer.h>
+#include <LwipEthernet.h>
 #include <Updater.h>
 #include <time.h>
 #include "plat.h"
+#include "coop.h"
 
 // in der .ino-Datei definiert (Zugriff auf das Ethernet-Objekt)
 std::string dev_local_ip();
@@ -50,53 +50,39 @@ std::string time_hms() {
 
 uint32_t random32() { return rp2040.hwrand32(); }
 
-Mutex::Mutex() : h_(xSemaphoreCreateRecursiveMutex()) {}
-Mutex::~Mutex() { vSemaphoreDelete((SemaphoreHandle_t)h_); }
-void Mutex::lock() { xSemaphoreTakeRecursive((SemaphoreHandle_t)h_, portMAX_DELAY); }
-void Mutex::unlock() { xSemaphoreGiveRecursive((SemaphoreHandle_t)h_); }
-
-struct TaskArgs {
-    void (*fn)(void*);
-    void* arg;
+// Kooperativer, rekursiver Mutex: wer ihn nicht bekommt, gibt ab.
+struct MtxState {
+    coop::Task* owner;
+    int count;
 };
-
-static void task_trampoline(void* p) {
-    TaskArgs a = *(TaskArgs*)p;
-    delete (TaskArgs*)p;
-    a.fn(a.arg);
-    vTaskDelete(nullptr);
+static coop::Task* const kNoTask = (coop::Task*)1;   // setup()/loop()-Kontext
+static coop::Task* me() {
+    coop::Task* t = coop::current();
+    return t ? t : kNoTask;
+}
+Mutex::Mutex() : h_(new MtxState{nullptr, 0}) {}
+Mutex::~Mutex() { delete (MtxState*)h_; }
+void Mutex::lock() {
+    MtxState* s = (MtxState*)h_;
+    coop::Task* m = me();
+    while (s->count > 0 && s->owner != m) coop::sleep(0);
+    s->owner = m;
+    s->count++;
+}
+void Mutex::unlock() {
+    MtxState* s = (MtxState*)h_;
+    if (s->count > 0 && --s->count == 0) s->owner = nullptr;
 }
 
 bool task_start(const char* name, void (*fn)(void*), void* arg, uint32_t stack_bytes, int prio) {
-    TaskArgs* a = new TaskArgs{fn, arg};
-    if (xTaskCreate(task_trampoline, name, stack_bytes / sizeof(StackType_t), a, tskIDLE_PRIORITY + prio, nullptr) != pdPASS) {
-        delete a;
-        return false;
-    }
-    return true;
+    (void)prio;
+    return coop::start(name, fn, arg, stack_bytes);
 }
 
 uint32_t free_heap() { return rp2040.getFreeHeap(); }
 uint32_t total_heap() { return rp2040.getTotalHeap(); }
 
-// ---- Absturz-Diagnose ---------------------------------------------------
-// Ein Stack-Ueberlauf haelt das Board sonst stumm an (panic). Stattdessen
-// merken wir uns den Namen der Aufgabe im nicht initialisierten RAM und
-// starten neu; nach dem Neustart steht der Grund im Diagnose-Log.
-#define DD_CRASH_MAGIC 0x44444352u
-struct CrashInfo { uint32_t magic; char task[24]; };
-static CrashInfo __uninitialized_ram(g_crash);
-}  // namespace plat
-
-extern "C" void vApplicationStackOverflowHook(TaskHandle_t, char* name) {
-    plat::g_crash.magic = DD_CRASH_MAGIC;
-    strncpy(plat::g_crash.task, name ? name : "?", sizeof(plat::g_crash.task) - 1);
-    plat::g_crash.task[sizeof(plat::g_crash.task) - 1] = 0;
-    watchdog_reboot(0, 0, 10);
-    for (;;) {}
-}
-
-namespace plat {
+// ---- Absturz-Diagnose (Merker g_dd_crash in coop.cpp) -------------------
 std::string boot_reason() {
     static std::string r;
     if (!r.empty()) return r;
@@ -110,10 +96,12 @@ std::string boot_reason() {
         case RP2040::BROWNOUT_RESET: r = "Unterspannung"; break;
         default: r = "unbekannt"; break;
     }
-    if (g_crash.magic == DD_CRASH_MAGIC) {
-        r += std::string(" nach Stack-Ueberlauf in Aufgabe '") + g_crash.task + "'";
+    if (g_dd_crash.magic == DD_CRASH_MAGIC) {
+        g_dd_crash.what[sizeof(g_dd_crash.what) - 1] = 0;
+        g_dd_crash.task[sizeof(g_dd_crash.task) - 1] = 0;
+        r += std::string(" nach ") + g_dd_crash.what + " in Aufgabe '" + g_dd_crash.task + "'";
     }
-    g_crash.magic = 0;
+    g_dd_crash.magic = 0;
     return r;
 }
 
@@ -127,6 +115,7 @@ public:
     }
     ~DevConn() override { close(); }
     int read_raw(uint8_t* buf, size_t len, uint32_t timeout_ms) override {
+        coop::maybe_yield();
         uint32_t start = ::millis();
         for (;;) {
             int a = c_.available();
@@ -152,6 +141,7 @@ public:
         uint32_t start = ::millis();
         c_.setTimeout(timeout_ms);
         while (off < len) {
+            coop::maybe_yield();
             if (!c_.connected()) {
                 open_ = false;
                 return false;
@@ -182,7 +172,21 @@ private:
 Conn* tcp_connect(const std::string& host, uint16_t port, uint32_t timeout_ms, std::string* err) {
     WiFiClient c;
     c.setTimeout(timeout_ms);
-    if (!c.connect(host.c_str(), port)) {
+    // arduino-pico kann nur eine DNS-Abfrage gleichzeitig -> serialisieren
+    bool ok;
+    IPAddress ip;
+    if (ip.fromString(host.c_str())) {
+        ok = c.connect(ip, port);
+    } else {
+        static Mutex* dns = new Mutex();
+        bool found;
+        {
+            Lock lk(*dns);
+            found = ::hostByName(host.c_str(), ip, (int)timeout_ms) == 1;
+        }
+        ok = found && c.connect(ip, port);
+    }
+    if (!ok) {
         if (err) *err = "Verbindung zu " + host + ":" + std::to_string(port) + " fehlgeschlagen (nicht erreichbar oder Port geschlossen)";
         return nullptr;
     }

@@ -30,7 +30,7 @@ Hinweis ab, statt ihn einzureihen.
 1. **BOOT**-Taste gedrückt halten, Board per USB-C anschließen (oder bei
    angeschlossenem Board BOOT halten und kurz **RUN/Reset** drücken).
 2. Es erscheint ein Laufwerk **RP2350**.
-3. `DruckerDashboardRP2350-MK1-v1.0.2.uf2` darauf ziehen – das Board startet
+3. `DruckerDashboardRP2350-MK1-v1.1.0.uf2` darauf ziehen – das Board startet
    neu.
 
 Spätere Updates gehen auch ohne BOOT-Taste: *Einstellungen → System →
@@ -63,7 +63,7 @@ Firmware-Update (.bin)* mit der `.bin`-Datei (nicht der `.uf2`).
 1. Seriellen Monitor öffnen (Arduino IDE oder z. B. PuTTY, USB-Port des
    Boards, **115200 Baud**) und den Reset-Taster drücken. Erwartet wird:
    ```
-   ==== Drucker Dashboard RP2350 v1.0.2 startet ====
+   ==== Drucker Dashboard RP2350 v1.1.0 startet ====
    Letzter Neustart: Einschalten
    [NET] W5500 gestartet, MAC ...
    [NET] IP-Adresse: 192.168.x.y  ->  http://192.168.x.y/
@@ -76,7 +76,7 @@ Firmware-Update (.bin)* mit der `.bin`-Datei (nicht der `.uf2`).
 4. `.local`-Namen funktionieren nicht in jedem Netz (z. B. manche
    Android-Geräte, VLANs) – dann die IP-Adresse verwenden.
 5. Unter Einstellungen → System wird der **letzte Neustartgrund** angezeigt
-   (z. B. „Watchdog“ oder „Stack-Überlauf in Aufgabe …“).
+   (z. B. „Watchdog“, „Stack-Ueberlauf in Aufgabe …“ oder „Absturz (HardFault) in Aufgabe …“).
 
 ## 3. Bestehende Konfiguration übernehmen
 
@@ -179,8 +179,18 @@ sh tools/build.sh        # -> build/DruckerDashboardRP2350-MK1.ino.uf2 und .bin
 
 Das Skript erzeugt zuerst `web_index.h` aus `web/index.html`
 (gzip-komprimiert) und baut mit: Board *Raspberry Pi Pico 2*,
-*FreeRTOS SMP*, *4MB (Sketch: 3MB, FS: 1MB)*, *IPv4 Only* mit erhöhtem
-lwIP-Speicher (`__LWIP_MEMMULT=3`). Die Bibliotheken (mbedTLS 3.6.6 mit
+Operating System *None* (**kein FreeRTOS** – siehe unten), *4MB (Sketch: 3MB, FS: 1MB)*, *IPv4 Only* mit erhöhtem
+lwIP-Speicher (`__LWIP_MEMMULT=3`).
+
+**Warum kein FreeRTOS?** Mit „FreeRTOS SMP“ aus arduino-pico 6.2.0 bleibt
+auf dem RP2350-Mini-ETH schon `eth.begin()` hängen (keine IP). Seit v1.1.0
+laufen alle Aufgaben (Web-Verbindungen, Drucker, Kameras) deshalb als
+kooperative Aufgaben mit eigenem Stack auf Core 0 (`coop.cpp`); umgeschaltet
+wird in `delay()`/`yield()`, die arduino-pico beim Warten auf das Netzwerk
+ohnehin aufruft. Die Umschaltung (inkl. FPU-Registern, Stack-Grenze und
+Absturzerkennung) ist in QEMU (Cortex-M33, mps2-an505) getestet.
+
+Die Bibliotheken (mbedTLS 3.6.6 mit
 eigener Konfiguration, ArduinoJson 7.4) liegen in `firmware/libraries/`.
 
 **Arduino-IDE:** Inhalt von `firmware/libraries/` in den eigenen
@@ -196,8 +206,10 @@ UF2 + BIN und veröffentlicht auf `main` ein Release (Version aus
 
 ```
 firmware/DruckerDashboardRP2350-MK1/
-  DruckerDashboardRP2350-MK1.ino   Start (eigene Aufgabe, 24 KB Stack): LittleFS, W5500, DHCP, mDNS, NTP, LED, Watchdog
-  plat.h / plat_arduino.cpp        Plattformschicht (FreeRTOS-Tasks, lwIP-TCP, LittleFS, OTA)
+  DruckerDashboardRP2350-MK1.ino   Start (Aufgabe "main", 24 KB Stack): LittleFS, W5500, DHCP, mDNS, NTP, LED, Watchdog
+  coop.h / coop.cpp                kooperative Aufgaben (eigene Stacks, Umschaltung in delay()/yield(),
+                                   Stack-Grenze per MSPLIM, Absturz -> Neustart mit Grund)
+  plat.h / plat_arduino.cpp        Plattformschicht (Aufgaben, Mutex, lwIP-TCP, LittleFS, OTA)
   tls.*                            mbedTLS-Client (TLS 1.2/1.3, Sitzungs-Wiederverwendung)
   httpd.* / api.*                  HTTP-Server + alle REST-Routen (Portierung der Flask-Routen)
   httpc.* / mqtt.*                 HTTP- und MQTT-Client
@@ -225,5 +237,5 @@ sudo python3 ../test/mock_printers.py &      # nutzt 127.0.0.2-127.0.0.10
 ```
 
 **Nicht** auf echter Hardware getestet werden konnten: das Board selbst
-(W5500/lwIP unter FreeRTOS, Speicherverbrauch im Dauerbetrieb) und echte
+(Speicherverbrauch im Dauerbetrieb) und echte
 Drucker. Die Netzwerk-/Protokoll-Logik ist dieselbe wie im Host-Test.
