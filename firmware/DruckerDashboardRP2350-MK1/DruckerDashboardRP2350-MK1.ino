@@ -72,12 +72,13 @@ static IPAddress ip_of(const char* s) {
 // setup()/loop() tun praktisch nichts mehr.
 // ---------------------------------------------------------------------
 static void main_init() {
-    statusled::begin(DD_PIN_LED);
-    statusled::set(statusled::BOOT);
     delay(1500);   // Zeit fuer den USB-Seriell-Monitor
     Serial.println();
     Serial.println("==== " APP_NAME " v" APP_VERSION " startet ====");
     Serial.printf("Letzter Neustart: %s\n", plat::boot_reason().c_str());
+    Serial.println("[1/5] Speicher (LittleFS) ...");
+    Serial.flush();
+    statusled::set(statusled::STORAGE);
     if (!LittleFS.begin()) {
         Serial.println("LittleFS wird formatiert ...");
         LittleFS.format();
@@ -85,6 +86,7 @@ static void main_init() {
     }
     logf("[SYS] Start v%s - letzter Neustart: %s", APP_VERSION, plat::boot_reason().c_str());
     cfg::init();
+    Serial.println("[2/5] Einstellungen geladen");
 
     // Netzwerk-Einstellungen
     bool dhcp = true;
@@ -106,6 +108,8 @@ static void main_init() {
     strncpy(wifi_station_hostname, g_hostname.c_str(), 31);
 
     // W5500 hart zuruecksetzen
+    Serial.println("[3/5] W5500 wird gestartet ...");
+    Serial.flush();
     pinMode(PIN_ETH_RST, OUTPUT);
     digitalWrite(PIN_ETH_RST, LOW);
     delay(5);
@@ -115,7 +119,7 @@ static void main_init() {
     SPI.setCS(PIN_ETH_CS);
     SPI.setSCK(PIN_ETH_SCK);
     SPI.setTX(PIN_ETH_MOSI);
-    eth.setSPISpeed(30000000);
+    eth.setSPISpeed(20000000);
     if (!dhcp && !ip.empty()) {
         IPAddress dnsA = ip_of(dns.c_str());
         if (dnsA == IPAddress(0, 0, 0, 0)) dnsA = ip_of(gw.c_str());
@@ -127,6 +131,7 @@ static void main_init() {
         statusled::set(statusled::ERROR);
     } else {
         logf("[NET] W5500 gestartet, MAC %s", dev_mac().c_str());
+        statusled::set(statusled::NET_WAIT);
     }
     // Die Abfrage-Aufgabe des Treibers laeuft mit Prioritaet 1 und wuerde von
     // den Drucker-Aufgaben (TLS-Rechnerei) ausgebremst -> hoeher setzen.
@@ -140,14 +145,19 @@ static void main_init() {
     } else {
         logf("[NET] Noch keine Netzwerkverbindung - Dienste starten trotzdem (DHCP laeuft weiter).");
     }
+    Serial.println("[4/5] Zeit (NTP) und mDNS ...");
+    statusled::set(statusled::BOOT);
     NTP.begin(ntp.c_str());
     if (MDNS.begin(g_hostname.c_str())) {
         MDNS.addService("http", "tcp", 80);
         g_mdns = true;
         logf("[NET] mDNS: http://%s.local/", g_hostname.c_str());
     }
+    Serial.println("[5/5] Webserver und Drucker-Verbindungen ...");
+    Serial.flush();
     app::start(80);
     g_started = true;
+    Serial.println("Start abgeschlossen.");
 }
 
 static void main_loop() {
@@ -181,6 +191,8 @@ static void main_task(void*) {
 
 void setup() {
     Serial.begin(115200);
+    statusled::begin(DD_PIN_LED);
+    statusled::set(statusled::START);
     TaskHandle_t h;
     xTaskCreate(main_task, "main", 24 * 1024 / sizeof(StackType_t), nullptr, tskIDLE_PRIORITY + 3, &h);
     vTaskCoreAffinitySet(h, 1 << 0);

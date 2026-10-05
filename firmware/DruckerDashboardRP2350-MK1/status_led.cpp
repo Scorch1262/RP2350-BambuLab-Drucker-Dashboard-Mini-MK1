@@ -23,6 +23,8 @@ static void put_rgb(uint8_t r, uint8_t g, uint8_t b) {
     pio_sm_put_blocking(g_pio, g_sm, grb << 8u);
 }
 
+void tick();
+
 void begin(int pin) {
     uint offset;
     if (!pio_claim_free_sm_and_add_program_for_gpio_range(&ws2812_program, &g_pio, &g_sm, &offset, pin, 1, true)) return;
@@ -31,7 +33,11 @@ void begin(int pin) {
     put_rgb(0, 0, 0);
 }
 
-void set(State s) { g_state = s; }
+void set(State s) {
+    if (g_state == ERROR) return;   // Fehler bleibt sichtbar
+    g_state = s;
+    tick();
+}
 
 void tick() {
     uint32_t t = millis();
@@ -41,6 +47,9 @@ void tick() {
         case OK: put_rgb(0, 10, 0); break;
         case NO_NET: blink ? put_rgb(24, 8, 0) : put_rgb(0, 0, 0); break;
         case ERROR: put_rgb(32, 0, 0); break;
+        case START: put_rgb(16, 16, 16); break;
+        case STORAGE: put_rgb(16, 0, 16); break;
+        case NET_WAIT: put_rgb(20, 14, 0); break;
     }
     (void)g_last;
 }
