@@ -524,6 +524,22 @@ mbedtls_mpi_uint mbedtls_mpi_core_montmul_init(const mbedtls_mpi_uint *N)
     return ~x + 1;
 }
 
+/* Drucker Dashboard: Abgabepunkt fuer die kooperativen Aufgaben (coop.cpp).
+ * Lange Rechnungen (TLS-Handshake: ECDHE, RSA) geben so regelmaessig ab,
+ * statt alle anderen Aufgaben fuer Hunderte Millisekunden anzuhalten.
+ * Die echte Implementierung steht in tls.cpp; hier nur ein leerer Platzhalter. */
+__attribute__((weak)) void mbedtls_dd_yield_hook(void)
+{
+}
+
+static unsigned dd_yield_count;
+void mbedtls_dd_maybe_yield(void)
+{
+    if ((++dd_yield_count & 7u) == 0) {
+        mbedtls_dd_yield_hook();
+    }
+}
+
 void mbedtls_mpi_core_montmul(mbedtls_mpi_uint *X,
                               const mbedtls_mpi_uint *A,
                               const mbedtls_mpi_uint *B,
@@ -533,6 +549,7 @@ void mbedtls_mpi_core_montmul(mbedtls_mpi_uint *X,
                               mbedtls_mpi_uint mm,
                               mbedtls_mpi_uint *T)
 {
+    mbedtls_dd_maybe_yield();
     memset(T, 0, (2 * AN_limbs + 1) * ciL);
 
     for (size_t i = 0; i < AN_limbs; i++) {

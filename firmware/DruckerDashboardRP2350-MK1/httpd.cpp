@@ -244,7 +244,7 @@ void start(uint16_t port) {
         return;
     }
     logf("[HTTP] Web-Oberflaeche auf Port %u gestartet.", port);
-    plat::task_start("httpd", listen_task, nullptr, 3072, 3);
+    plat::task_start("httpd", listen_task, nullptr, 6 * 1024, 3);
 }
 
 } // namespace http

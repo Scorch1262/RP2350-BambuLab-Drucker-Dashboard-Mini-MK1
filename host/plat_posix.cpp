@@ -73,6 +73,7 @@ bool task_start(const char* name, void (*fn)(void*), void* arg, uint32_t stack_b
 uint32_t free_heap() { return 0; }
 uint32_t total_heap() { return 0; }
 std::string boot_reason() { return "Host-Test"; }
+std::string sched_text() { return ""; }
 
 // ---- TCP --------------------------------------------------------------
 class PosixConn : public Conn {

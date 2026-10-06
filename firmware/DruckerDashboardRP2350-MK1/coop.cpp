@@ -40,6 +40,8 @@ namespace coop {
 static uint32_t g_sched_limit = 0;
 static bool g_limit_read = false;
 static int g_count = 0;
+static Stats g_stats = {0, "-", 0, "-", 0};
+Stats stats() { return g_stats; }
 
 // Kontextwechsel: sichert r3-r11, lr, s16-s31 auf dem alten Stack, merkt
 // den Stackzeiger in *save, wechselt auf den neuen Stack und setzt die
@@ -146,6 +148,16 @@ void run_once() {
             t->slice = ::millis();
             coop_swap(&g_sched_sp, t->sp, (uint32_t)(uintptr_t)t->stack + STACK_GUARD);
             g_cur = nullptr;
+            uint32_t dt = ::millis() - t->slice;
+            if (dt > g_stats.max_block_ms) {
+                g_stats.max_block_ms = dt;
+                g_stats.max_block_task = t->name;
+            }
+            if (dt >= 250) {
+                g_stats.last_long_ms = dt;
+                g_stats.last_long_task = t->name;
+                g_stats.long_count++;
+            }
             if (*(uint32_t*)t->stack != CANARY) {
                 g_cur = t;
                 crash_reboot("Stack-Ueberlauf");

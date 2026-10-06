@@ -83,6 +83,14 @@ uint32_t free_heap() { return rp2040.getFreeHeap(); }
 uint32_t total_heap() { return rp2040.getTotalHeap(); }
 
 // ---- Absturz-Diagnose (Merker g_dd_crash in coop.cpp) -------------------
+std::string sched_text() {
+    coop::Stats st = coop::stats();
+    char b[160];
+    snprintf(b, sizeof(b), "%d Aufgaben, laengste Blockade %u ms (%s), %u x ueber 250 ms", coop::count(),
+             (unsigned)st.max_block_ms, st.max_block_task, (unsigned)st.long_count);
+    return b;
+}
+
 std::string boot_reason() {
     static std::string r;
     if (!r.empty()) return r;
@@ -157,7 +165,14 @@ public:
         return true;
     }
     void close() override {
-        if (open_) c_.stop();
+        if (open_) {
+            // WiFiClient::stop() wartet bis zu 300 ms OHNE abzugeben auf die
+            // Bestaetigung (ACK) der Gegenseite - das wuerde alle Aufgaben
+            // anhalten. Daher selbst warten (mit Abgabe), dann sofort schliessen.
+            uint32_t start = ::millis();
+            while (c_.connected() && !c_.flush(1) && ::millis() - start < 2000) ::delay(2);
+            c_.stop(1);
+        }
         open_ = false;
     }
     bool is_open() override { return open_ && (c_.connected() || c_.available() > 0); }

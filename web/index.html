@@ -3171,7 +3171,7 @@ async function refreshSystemInfo(){
       <div class="manage-row"><div class="manage-info">Plattform<div class="manage-sub">${s.platform}</div></div></div>
       <div class="manage-row"><div class="manage-info">Netzwerk<div class="manage-sub">IP ${s.ip} &middot; MAC ${s.mac} &middot; ${s.link ? 'verbunden' : 'KEINE Verbindung'}</div></div></div>
       <div class="manage-row"><div class="manage-info">Uhrzeit<div class="manage-sub">${s.time} ${s.time_synced ? '(per NTP gestellt)' : '(noch nicht per NTP gestellt - Anzeige = Laufzeit)'}</div></div></div>
-      <div class="manage-row"><div class="manage-info">Laufzeit / Speicher<div class="manage-sub">${h} h ${m} min &middot; ${heap} &middot; ${s.http_active} Web-Verbindungen &middot; ${s.camera_streams} Kamera-Streams${s.boot_reason ? ' &middot; letzter Neustart: ' + String(s.boot_reason).replace(/[<>&]/g, '') : ''}</div></div></div>`;
+      <div class="manage-row"><div class="manage-info">Laufzeit / Speicher<div class="manage-sub">${h} h ${m} min &middot; ${heap} &middot; ${s.http_active} Web-Verbindungen &middot; ${s.camera_streams} Kamera-Streams${s.boot_reason ? ' &middot; letzter Neustart: ' + String(s.boot_reason).replace(/[<>&]/g, '') : ''}${s.sched ? ' &middot; ' + String(s.sched).replace(/[<>&]/g, '') : ''}</div></div></div>`;
   } catch(e){
     el.textContent = 'Systeminformationen nicht verfuegbar.';
   }

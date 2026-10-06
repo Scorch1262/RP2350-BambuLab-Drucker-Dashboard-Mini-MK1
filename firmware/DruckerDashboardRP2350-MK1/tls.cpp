@@ -10,6 +10,12 @@
 #include "mbedtls/threading.h"
 #include "mbedtls/platform_time.h"
 #include "psa/crypto.h"
+#ifdef ARDUINO
+#include "coop.h"
+// Abgabepunkt aus der mbedTLS-Langzahlarithmetik (bignum_core.c): lange
+// Handshake-Rechnungen halten die anderen Aufgaben nicht mehr an.
+extern "C" void mbedtls_dd_yield_hook(void) { coop::maybe_yield(); }
+#endif
 
 // ---- Hardware-Zufall und Zeit fuer mbedTLS ---------------------------
 extern "C" int mbedtls_hardware_poll(void* data, unsigned char* output, size_t len, size_t* olen) {

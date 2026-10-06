@@ -30,7 +30,7 @@ Hinweis ab, statt ihn einzureihen.
 1. **BOOT**-Taste gedrückt halten, Board per USB-C anschließen (oder bei
    angeschlossenem Board BOOT halten und kurz **RUN/Reset** drücken).
 2. Es erscheint ein Laufwerk **RP2350**.
-3. `DruckerDashboardRP2350-MK1-v1.1.0.uf2` darauf ziehen – das Board startet
+3. `DruckerDashboardRP2350-MK1-v1.1.1.uf2` darauf ziehen – das Board startet
    neu.
 
 Spätere Updates gehen auch ohne BOOT-Taste: *Einstellungen → System →
@@ -63,7 +63,7 @@ Firmware-Update (.bin)* mit der `.bin`-Datei (nicht der `.uf2`).
 1. Seriellen Monitor öffnen (Arduino IDE oder z. B. PuTTY, USB-Port des
    Boards, **115200 Baud**) und den Reset-Taster drücken. Erwartet wird:
    ```
-   ==== Drucker Dashboard RP2350 v1.1.0 startet ====
+   ==== Drucker Dashboard RP2350 v1.1.1 startet ====
    Letzter Neustart: Einschalten
    [NET] W5500 gestartet, MAC ...
    [NET] IP-Adresse: 192.168.x.y  ->  http://192.168.x.y/
@@ -77,6 +77,10 @@ Firmware-Update (.bin)* mit der `.bin`-Datei (nicht der `.uf2`).
    Android-Geräte, VLANs) – dann die IP-Adresse verwenden.
 5. Unter Einstellungen → System wird der **letzte Neustartgrund** angezeigt
    (z. B. „Watchdog“, „Stack-Ueberlauf in Aufgabe …“ oder „Absturz (HardFault) in Aufgabe …“).
+6. Reagiert die Seite träge, stehen unter Einstellungen → System die
+   **längste Blockade** (welche Aufgabe wie lange am Stück gerechnet hat) und
+   die Anzahl der Blockaden über 250 ms; im Diagnose-Log steht jeweils
+   „Aufgabe '…' hat … ms ohne Unterbrechung gerechnet“.
 
 ## 3. Bestehende Konfiguration übernehmen
 

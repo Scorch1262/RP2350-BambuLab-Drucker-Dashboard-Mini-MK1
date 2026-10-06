@@ -59,6 +59,8 @@ uint32_t free_heap();
 uint32_t total_heap();
 // Grund des letzten Neustarts (Einschalten, Watchdog, Stack-Ueberlauf ...)
 std::string boot_reason();
+// Aufgaben-Statistik (Anzahl, laengste Blockade) - Host: leer
+std::string sched_text();
 // true, wenn (auf dem Geraet) mindestens need Bytes Heap frei sind
 inline bool heap_ok(uint32_t need) { uint32_t f = free_heap(); return f == 0 || f >= need; }
 

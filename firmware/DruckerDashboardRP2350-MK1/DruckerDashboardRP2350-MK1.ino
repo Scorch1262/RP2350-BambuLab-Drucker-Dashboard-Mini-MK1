@@ -169,6 +169,17 @@ static void main_loop() {
     }
     statusled::set(up ? statusled::OK : statusled::NO_NET);
     statusled::tick();
+    {
+        // Blockaden protokollieren (eine Aufgabe lief >= 250 ms ohne abzugeben)
+        static uint32_t seen_long = 0, last_warn = 0;
+        coop::Stats st = coop::stats();
+        if (st.long_count != seen_long && millis() - last_warn > 10000) {
+            last_warn = millis();
+            seen_long = st.long_count;
+            logf("[SYS] Aufgabe '%s' hat %u ms ohne Unterbrechung gerechnet (Seite reagiert dann verzoegert).",
+                 st.last_long_task, (unsigned)st.last_long_ms);
+        }
+    }
     if (millis() - last_info > 300000 || (last_info == 0 && millis() > 30000)) {
         last_info = millis();
         logf("[SYS] Freier Speicher: %u / %u Bytes", (unsigned)plat::free_heap(), (unsigned)plat::total_heap());

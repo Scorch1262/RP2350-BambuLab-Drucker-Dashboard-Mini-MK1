@@ -1013,6 +1013,7 @@ static void h_system(Request& r) {
     d["uptime_s"] = plat::millis() / 1000;
     d["heap_free"] = plat::free_heap();
     d["boot_reason"] = plat::boot_reason();
+    d["sched"] = plat::sched_text();
     d["heap_total"] = plat::total_heap();
     d["ip"] = plat::local_ip();
     d["mac"] = plat::mac_address();
@@ -1032,7 +1033,7 @@ static void reboot_task(void*) {
 
 static void h_reboot(Request& r) {
     http::send_ok(r);
-    plat::task_start("reboot", reboot_task, nullptr, 2048, 4);
+    plat::task_start("reboot", reboot_task, nullptr, 4096, 4);
 }
 
 static void h_ota(Request& r) {
@@ -1070,7 +1071,7 @@ static void h_ota(Request& r) {
     if (!plat::ota_end(&err)) return http::send_error(r, 400, err);
     logf("[SYS] Firmware-Update empfangen - Neustart.");
     http::send_ok(r);
-    plat::task_start("reboot", reboot_task, nullptr, 2048, 4);
+    plat::task_start("reboot", reboot_task, nullptr, 4096, 4);
 }
 
 static void h_favicon(Request& r) { http::send(r, 204, nullptr, ""); }

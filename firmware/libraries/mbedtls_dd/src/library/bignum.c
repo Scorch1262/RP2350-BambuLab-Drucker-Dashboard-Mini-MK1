@@ -1195,9 +1195,12 @@ int mbedtls_mpi_sub_int(mbedtls_mpi *X, const mbedtls_mpi *A, mbedtls_mpi_sint b
 /*
  * Baseline multiplication: X = A * B  (HAC 14.12)
  */
+void mbedtls_dd_maybe_yield(void); /* bignum_core.c (Drucker Dashboard) */
+
 int mbedtls_mpi_mul_mpi(mbedtls_mpi *X, const mbedtls_mpi *A, const mbedtls_mpi *B)
 {
     int ret = MBEDTLS_ERR_ERROR_CORRUPTION_DETECTED;
+    mbedtls_dd_maybe_yield();
     size_t i, j;
     mbedtls_mpi TA, TB;
     int result_is_zero = 0;

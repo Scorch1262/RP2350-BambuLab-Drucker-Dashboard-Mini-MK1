@@ -33,6 +33,15 @@ int count();
 // Gibt ab, wenn die laufende Aufgabe schon laenger als ~20 ms rechnet
 // (verhindert, dass ein schneller Datenstrom alle anderen ausbremst).
 void maybe_yield();
+// Laengste Zeit, die eine Aufgabe am Stueck lief (ohne abzugeben)
+struct Stats {
+    uint32_t max_block_ms;
+    const char* max_block_task;
+    uint32_t last_long_ms;        // letzte Blockade >= 250 ms
+    const char* last_long_task;
+    uint32_t long_count;          // Anzahl Blockaden >= 250 ms
+};
+Stats stats();
 // Absturzinfo setzen (Name der laufenden Aufgabe) und neu starten
 [[noreturn]] void crash_reboot(const char* what);
 }
