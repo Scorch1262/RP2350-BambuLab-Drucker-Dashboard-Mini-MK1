@@ -22,6 +22,7 @@
 #include <mbedtls_dd.h>
 #include <ArduinoJson.h>
 #include <string>
+#include <new>
 #include "plat.h"
 #include "config.h"
 #include "app_main.h"
@@ -159,6 +160,11 @@ static void main_loop() {
     static uint32_t last_info = 0;
     static bool was_up = false;
     g_main_beat = millis();
+    static bool stable = false;
+    if (!stable && millis() > 180000) {   // 3 min ohne Absturz -> Zaehler zuruecksetzen
+        stable = true;
+        plat::mark_stable();
+    }
     app::tick();
     if (g_mdns) MDNS.update();
     bool up = eth.connected();
@@ -186,7 +192,11 @@ static void main_loop() {
     }
 }
 
+// Kein Speicher mehr fuer "new": Grund merken und neu starten (statt stumm haengen)
+static void out_of_memory() { coop::crash_reboot("Speicher voll"); }
+
 static void main_task(void*) {
+    std::set_new_handler(out_of_memory);
     main_init();
     g_wdt = true;
     rp2040.wdt_begin(8000);   // bleibt eine Aufgabe > 8 s haengen, startet das Board neu

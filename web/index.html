@@ -489,6 +489,7 @@
   }
   .settings-section label.file-btn{ display:inline-block; text-transform:none; letter-spacing:0; font-size:11px; color:var(--text); margin:0; }
   .settings-section code{ font-family:var(--mono); font-size:11px; }
+.safe-banner{margin:12px 16px;padding:12px 14px;border-radius:10px;background:#7a2e00;color:#fff;font-weight:600;line-height:1.4}
 </style>
 </head>
 <body>
@@ -519,6 +520,7 @@
   </div>
 </header>
 
+<div id="safeBanner" class="safe-banner" style="display:none"></div>
 <main id="printerList"></main>
 
 <!-- v2.3.0: Einstellungen-Modus - Drucker-/Raum-/Kamera-Verwaltung sowie
@@ -2162,6 +2164,15 @@ async function refresh(){
     return;   // naechster Versuch beim naechsten Intervall
   }
   refreshRunning = false;
+  const sb = document.getElementById('safeBanner');
+  if(sb){
+    if(dash.safe_mode){
+      sb.style.display = '';
+      sb.textContent = 'Abgesicherter Modus: Das Board ist mehrmals hintereinander abgestuerzt (letzter Neustart: ' +
+        (dash.boot_reason || '?') + '). Drucker- und Kameraverbindungen sind deshalb pausiert. ' +
+        'Neustart ueber Einstellungen -> System startet wieder normal.';
+    } else sb.style.display = 'none';
+  }
   const printers = dash.printers || [], groups = dash.groups || [], cams = dash.cams || [], standaloneExtras = dash.standalone_extras || [];
   lastPrinterList = printers;
   lastGroupList = groups;

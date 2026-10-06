@@ -26,8 +26,15 @@ void start(uint16_t http_port) {
     tls::global_init();
     api::register_routes();
     http::start(http_port);
-    printers::start_all();
-    extras::restart();
+    if (plat::safe_mode()) {
+        logf("[SYS] ABGESICHERTER MODUS: Das Board ist mehrmals hintereinander abgestuerzt (letzter Neustart: %s). "
+             "Drucker-, Kamera- und MQTT-Verbindungen werden NICHT gestartet, damit die Seite erreichbar bleibt. "
+             "Nach einem Neustart ueber Einstellungen -> System laeuft wieder alles normal.",
+             plat::boot_reason().c_str());
+    } else {
+        printers::start_all();
+        extras::restart();
+    }
     logf("[SYS] %s v%s (portiert von %s) laeuft auf %s.", APP_NAME, APP_VERSION, APP_BASE, plat::platform_name());
 }
 

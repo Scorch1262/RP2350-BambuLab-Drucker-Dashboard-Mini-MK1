@@ -183,6 +183,11 @@ TlsConn* TlsConn::wrap(plat::Conn* tcp, const Options& opts, std::string* err, S
     }
     mbedtls_ssl_set_bio(&d->ssl, d, bio_send, nullptr, bio_recv_timeout);
 
+    // Nur EIN Handshake gleichzeitig: begrenzt den Speicherbedarf (jeder
+    // Handshake braucht kurzzeitig ~30-50 KB) - wichtig, seit Handshakes
+    // zwischendurch an andere Aufgaben abgeben.
+    static plat::Mutex* hs_mtx = new plat::Mutex();
+    plat::Lock hs_lock(*hs_mtx);
     uint32_t start = plat::millis();
     d->cur_timeout = 2000;
     for (;;) {

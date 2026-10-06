@@ -74,6 +74,8 @@ uint32_t free_heap() { return 0; }
 uint32_t total_heap() { return 0; }
 std::string boot_reason() { return "Host-Test"; }
 std::string sched_text() { return ""; }
+bool safe_mode() { return getenv("DD_SAFE_MODE") != nullptr; }
+void mark_stable() {}
 
 // ---- TCP --------------------------------------------------------------
 class PosixConn : public Conn {

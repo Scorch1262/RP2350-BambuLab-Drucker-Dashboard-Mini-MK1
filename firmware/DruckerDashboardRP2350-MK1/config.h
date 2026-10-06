@@ -7,7 +7,7 @@
 #include "plat.h"
 
 #define APP_NAME "Drucker Dashboard RP2350"
-#define APP_VERSION "1.1.1"
+#define APP_VERSION "1.1.2"
 #define APP_BASE "MK6 v2.5.5"
 
 namespace cfg {

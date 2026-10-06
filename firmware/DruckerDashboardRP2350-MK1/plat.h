@@ -59,6 +59,11 @@ uint32_t free_heap();
 uint32_t total_heap();
 // Grund des letzten Neustarts (Einschalten, Watchdog, Stack-Ueberlauf ...)
 std::string boot_reason();
+// Abgesicherter Modus: nach 3 Absturz-Neustarts in Folge werden keine
+// Drucker-/Kamera-Verbindungen gestartet, damit die Seite erreichbar bleibt.
+bool safe_mode();
+// nach einigen Minuten stabilem Lauf aufrufen (setzt den Absturzzaehler zurueck)
+void mark_stable();
 // Aufgaben-Statistik (Anzahl, laengste Blockade) - Host: leer
 std::string sched_text();
 // true, wenn (auf dem Geraet) mindestens need Bytes Heap frei sind

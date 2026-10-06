@@ -83,6 +83,21 @@ uint32_t free_heap() { return rp2040.getFreeHeap(); }
 uint32_t total_heap() { return rp2040.getTotalHeap(); }
 
 // ---- Absturz-Diagnose (Merker g_dd_crash in coop.cpp) -------------------
+struct BootInfo { uint32_t magic; uint32_t crash_boots; uint32_t intentional; };
+static BootInfo __uninitialized_ram(g_boot);
+#define DD_BOOT_MAGIC 0x44424F4Fu
+#define DD_INTENT_MAGIC 0x494E5445u
+static bool g_safe = false;
+
+bool safe_mode() {
+    boot_reason();
+    return g_safe;
+}
+
+void mark_stable() {
+    if (g_boot.magic == DD_BOOT_MAGIC) g_boot.crash_boots = 0;
+}
+
 std::string sched_text() {
     coop::Stats st = coop::stats();
     char b[160];
@@ -104,6 +119,19 @@ std::string boot_reason() {
         case RP2040::BROWNOUT_RESET: r = "Unterspannung"; break;
         default: r = "unbekannt"; break;
     }
+    bool crash = rp2040.getResetReason() == RP2040::WDT_RESET || g_dd_crash.magic == DD_CRASH_MAGIC;
+    if (g_boot.magic != DD_BOOT_MAGIC) {
+        g_boot.magic = DD_BOOT_MAGIC;
+        g_boot.crash_boots = 0;
+        g_boot.intentional = 0;
+    }
+    if (g_boot.intentional == DD_INTENT_MAGIC) {
+        crash = false;
+        r = "Neustart ueber die Weboberflaeche/Update";
+    }
+    g_boot.intentional = 0;
+    g_boot.crash_boots = crash ? g_boot.crash_boots + 1 : 0;
+    g_safe = g_boot.crash_boots >= 3;
     if (g_dd_crash.magic == DD_CRASH_MAGIC) {
         g_dd_crash.what[sizeof(g_dd_crash.what) - 1] = 0;
         g_dd_crash.task[sizeof(g_dd_crash.task) - 1] = 0;
@@ -269,6 +297,8 @@ bool fs_remove(const char* path) {
 }
 
 void reboot() {
+    g_boot.magic = DD_BOOT_MAGIC;
+    g_boot.intentional = DD_INTENT_MAGIC;
     ::delay(200);
     rp2040.reboot();
 }

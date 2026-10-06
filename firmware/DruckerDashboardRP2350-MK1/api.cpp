@@ -193,6 +193,10 @@ static void h_dashboard(Request& r) {
     sorted_list("groups", d["groups"].to<JsonArray>(), false);
     sorted_list("rtsp_cameras", d["cams"].to<JsonArray>(), false);
     sorted_list("standalone_extras", d["standalone_extras"].to<JsonArray>(), true);
+    if (plat::safe_mode()) {
+        d["safe_mode"] = true;
+        d["boot_reason"] = plat::boot_reason();
+    }
     http::send_json(r, 200, dump(d));
 }
 
@@ -1014,6 +1018,7 @@ static void h_system(Request& r) {
     d["heap_free"] = plat::free_heap();
     d["boot_reason"] = plat::boot_reason();
     d["sched"] = plat::sched_text();
+    d["safe_mode"] = plat::safe_mode();
     d["heap_total"] = plat::total_heap();
     d["ip"] = plat::local_ip();
     d["mac"] = plat::mac_address();
